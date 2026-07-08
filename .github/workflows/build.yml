@@ -95,7 +95,7 @@ jobs:
           path: artifacts/windows
 
       - name: Zip Windows build
-        run: cd artifacts/windows && zip -r ../../TandOrbit-Windows.zip TandOrbitAgent/
+        run: cd artifacts/windows && zip -r ../../TandOrbit-Windows.zip .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
