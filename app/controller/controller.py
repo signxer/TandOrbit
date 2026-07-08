@@ -1,17 +1,33 @@
 """TandOrbit 控制器
 
-唯一入口，负责参数检查、状态检查、调度 Scheduler。
+唯一入口，负责参数检查、状态检查、构建动作管道。
 不负责业务逻辑。
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from loguru import logger
 
 from app.config import ConfigManager
+from app.communication.mac_client import MacClient
 from app.enums import Mode
 from app.events import EventBus
 from app.plugin_base import PluginRegistry
+from app.scheduler.action_pipeline import ActionPipeline
+from app.scheduler.actions import (
+    ConfigureDisplaysForMac,
+    ConfigureDisplaysForShare,
+    ConfigureDisplaysForWindows,
+    RestartDeskflowAction,
+    SetAudioMacAction,
+    SetAudioWindowsAction,
+    SleepMacAction,
+    SleepWindowsAction,
+    StopDeskflowAction,
+    WakeWindowsAction,
+)
 from app.scheduler.scheduler import Scheduler
 from app.state.state_machine import StateManager
 
@@ -20,7 +36,7 @@ class Controller:
     """控制器
 
     所有操作的唯一入口。
-    GUI → Controller → Scheduler → Actions → Plugins
+    GUI → Controller → ActionPipeline → Actions → Plugins
     """
 
     def __init__(
@@ -36,6 +52,7 @@ class Controller:
         self._scheduler = scheduler
         self._plugins = plugin_registry
         self._config = config_manager
+        self._win_client: MacClient | None = None
 
     @property
     def current_mode(self) -> Mode:
@@ -44,6 +61,90 @@ class Controller:
     @property
     def is_transitioning(self) -> bool:
         return self._state.is_transitioning
+
+    def _get_win_client(self) -> MacClient:
+        """获取或创建 Windows Agent 客户端"""
+        if self._win_client is None:
+            cfg = self._config.config.windows
+            self._win_client = MacClient(
+                host=cfg.host, port=cfg.port, timeout=cfg.timeout
+            )
+        return self._win_client
+
+    def _get_plugin(self, name: str) -> Any:
+        """获取插件实例"""
+        return self._plugins.get(name)
+
+    def _build_pipeline(self, from_mode: Mode, to_mode: Mode) -> ActionPipeline:
+        """根据目标模式构建动作管道"""
+        pipeline = ActionPipeline(
+            name=f"{from_mode.name}_to_{to_mode.name}",
+            event_bus=self._event_bus,
+        )
+
+        cfg = self._config.config
+        win_client = self._get_win_client()
+        deskflow = self._get_plugin("deskflow")
+        display = self._get_plugin("betterdisplay")
+        audio = self._get_plugin("audio")
+
+        # === 切换到 Mac 模式 ===
+        if to_mode == Mode.MAC:
+            pipeline.add_action(
+                ConfigureDisplaysForMac(mac_display_plugin=display, win_client=win_client)
+            )
+            pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+            pipeline.add_action(SleepWindowsAction(
+                agent_host=cfg.windows.host,
+                agent_port=cfg.windows.port,
+            ))
+            if audio:
+                pipeline.add_action(SetAudioMacAction(
+                    audio_plugin=audio,
+                    device=cfg.audio.mac_output,
+                ))
+
+        # === 切换到 Windows 模式 ===
+        elif to_mode == Mode.WINDOWS:
+            # 如果从 Mac 模式过来，需要先唤醒 Windows
+            if from_mode == Mode.MAC:
+                pipeline.add_action(WakeWindowsAction(
+                    mac_address=cfg.windows.host,  # 需要配置 MAC 地址
+                    agent_host=cfg.windows.host,
+                    agent_port=cfg.windows.port,
+                    timeout=60.0,
+                ))
+            pipeline.add_action(
+                ConfigureDisplaysForWindows(
+                    mac_display_plugin=display, win_client=win_client
+                )
+            )
+            pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+            pipeline.add_action(SleepMacAction())
+            if win_client:
+                pipeline.add_action(SetAudioWindowsAction(
+                    win_client=win_client,
+                    device=cfg.audio.windows_output,
+                ))
+
+        # === 切换到共享模式 ===
+        elif to_mode == Mode.SHARE:
+            # 如果从 Mac 模式过来，需要先唤醒 Windows
+            if from_mode == Mode.MAC:
+                pipeline.add_action(WakeWindowsAction(
+                    mac_address=cfg.windows.host,
+                    agent_host=cfg.windows.host,
+                    agent_port=cfg.windows.port,
+                    timeout=60.0,
+                ))
+            pipeline.add_action(
+                ConfigureDisplaysForShare(
+                    mac_display_plugin=display, win_client=win_client
+                )
+            )
+            pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
+
+        return pipeline
 
     async def switch_mode(self, target: Mode) -> bool:
         """切换工作模式
@@ -67,12 +168,8 @@ class Controller:
         if not self._state.set_target(target):
             return False
 
-        # 3. 构建管道
-        pipeline = self._scheduler.build_pipeline(self._state.current_mode, target)
-        if pipeline is None:
-            logger.error("Failed to build pipeline")
-            self._state.rollback_transition()
-            return False
+        # 3. 构建管道（动态构建，不依赖预注册）
+        pipeline = self._build_pipeline(self._state.current_mode, target)
 
         # 4. 开始转换
         if not self._state.begin_transition():
@@ -92,12 +189,33 @@ class Controller:
 
         return success
 
+    async def check_windows_agent(self) -> bool:
+        """检查 Windows Agent 是否在线"""
+        try:
+            health = await self._get_win_client().health_check()
+            return health is not None
+        except Exception:
+            return False
+
+    async def wake_windows(self) -> bool:
+        """手动唤醒 Windows"""
+        cfg = self._config.config
+        action = WakeWindowsAction(
+            mac_address=cfg.windows.host,
+            agent_host=cfg.windows.host,
+            agent_port=cfg.windows.port,
+            timeout=60.0,
+        )
+        return await action.execute()
+
     async def get_system_status(self) -> dict[str, object]:
         """获取系统状态"""
         health = await self._plugins.health_check_all()
+        windows_online = await self.check_windows_agent()
         return {
             "current_mode": self._state.current_mode.name,
             "is_transitioning": self._state.is_transitioning,
+            "windows_online": windows_online,
             "plugins_health": health,
             "config_display_primary": self._config.config.display.primary_id,
             "config_display_secondary": self._config.config.display.secondary_id,
@@ -107,12 +225,26 @@ class Controller:
         """初始化系统"""
         logger.info("Controller: initializing system")
         self._config.load()
+
+        # 检查 Windows Agent 是否在线
+        windows_online = await self.check_windows_agent()
+        logger.info(f"Windows Agent online: {windows_online}")
+
         ok = await self._plugins.initialize_all()
         if ok:
             await self._plugins.enable_all()
+
+        # 如果 Windows 在线，设置初始状态为 MAC
+        if windows_online:
+            self._state.force_set(Mode.MAC)
+        else:
+            self._state.force_set(Mode.MAC)  # 默认 Mac 模式
+
         return ok
 
     async def shutdown(self) -> None:
         """关闭系统"""
         logger.info("Controller: shutting down system")
+        if self._win_client:
+            await self._win_client.close()
         await self._plugins.shutdown_all()

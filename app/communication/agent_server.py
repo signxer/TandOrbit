@@ -61,6 +61,8 @@ class AgentServer:
             Route("/api/deskflow/status", self._deskflow_status, methods=["GET"]),
             Route("/api/audio/devices", self._list_audio_devices, methods=["GET"]),
             Route("/api/audio/set", self._set_audio_device, methods=["POST"]),
+            Route("/api/power/sleep", self._sleep, methods=["POST"]),
+            Route("/api/power/shutdown", self._shutdown, methods=["POST"]),
         ]
         self._app = Starlette(routes=routes)
         return self._app
@@ -306,6 +308,35 @@ class AgentServer:
             device_name = body.get("device", "")
             ok = await self._audio_plugin.set_device(device_name)
             return JSONResponse(AgentResponse(success=ok).model_dump())
+        except Exception as e:
+            return JSONResponse(
+                AgentResponse(success=False, error=str(e)).model_dump(),
+                status_code=500,
+            )
+
+    async def _sleep(self, request: Request) -> JSONResponse:
+        """让 Windows 休眠"""
+        import subprocess
+        try:
+            subprocess.Popen(
+                ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
+                shell=True,
+            )
+            return JSONResponse(AgentResponse(success=True, message="Sleep command sent").model_dump())
+        except Exception as e:
+            return JSONResponse(
+                AgentResponse(success=False, error=str(e)).model_dump(),
+                status_code=500,
+            )
+
+    async def _shutdown(self, request: Request) -> JSONResponse:
+        """关闭 Windows"""
+        import subprocess
+        try:
+            subprocess.Popen(["shutdown", "/s", "/t", "5"], shell=True)
+            return JSONResponse(
+                AgentResponse(success=True, message="Shutdown command sent").model_dump()
+            )
         except Exception as e:
             return JSONResponse(
                 AgentResponse(success=False, error=str(e)).model_dump(),
