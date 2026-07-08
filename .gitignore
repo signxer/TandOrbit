@@ -19,7 +19,7 @@ wheels/
 .installed.cfg
 *.egg
 *.manifest
-*.spec
+*.egg-info
 pip-log.txt
 pip-delete-this-directory.txt
 htmlcov/
