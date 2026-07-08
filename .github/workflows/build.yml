@@ -1,0 +1,108 @@
+name: Build TandOrbit
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    name: Build macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Build macOS app
+        run: pyinstaller tandorbit.spec --noconfirm
+
+      - name: Create DMG (optional)
+        run: |
+          mkdir -p dist/dmg
+          cp -r dist/TandOrbit.app dist/dmg/
+          hdiutil create -volname "TandOrbit" -srcfolder dist/dmg -ov -format UDZO dist/TandOrbit-macOS.dmg
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TandOrbit-macOS
+          path: |
+            dist/TandOrbit.app
+            dist/TandOrbit-macOS.dmg
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run tests
+        run: python -m pytest tests/ -v
+
+      - name: Build Windows Agent
+        run: pyinstaller tandorbit_agent.spec --noconfirm
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TandOrbit-Windows
+          path: dist/TandOrbitAgent/
+
+  release:
+    name: Create Release
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TandOrbit-macOS
+          path: artifacts/mac
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: TandOrbit-Windows
+          path: artifacts/windows
+
+      - name: Zip Windows build
+        run: cd artifacts/windows && zip -r ../../TandOrbit-Windows.zip TandOrbitAgent/
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/mac/TandOrbit-macOS.dmg
+            TandOrbit-Windows.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
