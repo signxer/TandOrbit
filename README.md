@@ -182,7 +182,7 @@ TandOrbit/
 
 ### 预编译安装包
 
-前往 [Releases](https://github.com/YOUR_USERNAME/TandOrbit/releases) 页面下载：
+前往 [Releases](https://github.com/signxer/TandOrbit/releases) 页面下载：
 
 - **macOS**: `TandOrbit-macOS.dmg`
 - **Windows**: `TandOrbit-Windows.zip`
