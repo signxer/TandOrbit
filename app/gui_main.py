@@ -137,6 +137,13 @@ def _start_agent_server(config) -> None:
 
 def main() -> None:
     """跨平台 GUI 主入口"""
+    # -F 模式解压需要时间，先弹系统通知告知用户
+    if sys.platform == "darwin":
+        import subprocess
+        subprocess.Popen(
+            ["osascript", "-e", 'display notification "正在启动，请稍候..." with title "TandOrbit"'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
     try:
         _main()
     except Exception:
