@@ -67,7 +67,9 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
     logger.remove()
-    logger.add(sys.stderr, level=level)
+    # Windows GUI 模式下 sys.stderr 可能为 None（console=False）
+    if sys.stderr is not None:
+        logger.add(sys.stderr, level=level)
     logger.add(
         str(log_path / "tandorbit_{time:YYYY-MM-DD}.log"),
         rotation="1 day",
