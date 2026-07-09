@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import platform
 import shutil
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -52,6 +53,13 @@ class DDCPlugin(Plugin):
             self._tool_path = self.config.get(
                 "controlmymonitor_path", "ControlMyMonitor.exe"
             )
+
+        if not shutil.which(self._tool_path):
+            # macOS: 尝试 Homebrew 路径
+            if system == "Darwin":
+                homebrew_path = "/opt/homebrew/bin/m1ddc"
+                if shutil.which(homebrew_path) or Path(homebrew_path).exists():
+                    self._tool_path = homebrew_path
 
         if not shutil.which(self._tool_path):
             tool_name = "m1ddc" if system == "Darwin" else "ControlMyMonitor.exe"
@@ -150,9 +158,20 @@ class DDCPlugin(Plugin):
             return await self._windows_write_vcp(display_id, vcp_code, value)
         return False
 
+    # m1ddc 命令映射
+    M1DDC_VCP_MAP: dict[int, str] = {
+        VCP_INPUT_SOURCE: "input",
+        VCP_BRIGHTNESS: "luminance",
+        VCP_CONTRAST: "contrast",
+    }
+
     async def _mac_read_vcp(self, display_id: int, vcp_code: int) -> int | None:
         """macOS: 使用 m1ddc 读取 VCP 值"""
-        cmd = f'"{self._tool_path}" get {vcp_code:#04x} -d {display_id}'
+        cmd_name = self.M1DDC_VCP_MAP.get(vcp_code)
+        if not cmd_name:
+            logger.error(f"Unsupported VCP code for m1ddc: {vcp_code:#04x}")
+            return None
+        cmd = f'"{self._tool_path}" display {display_id} get {cmd_name}'
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd,
@@ -170,7 +189,11 @@ class DDCPlugin(Plugin):
         self, display_id: int, vcp_code: int, value: int
     ) -> bool:
         """macOS: 使用 m1ddc 写入 VCP 值"""
-        cmd = f'"{self._tool_path}" set {vcp_code:#04x} {value} -d {display_id}'
+        cmd_name = self.M1DDC_VCP_MAP.get(vcp_code)
+        if not cmd_name:
+            logger.error(f"Unsupported VCP code for m1ddc: {vcp_code:#04x}")
+            return False
+        cmd = f'"{self._tool_path}" display {display_id} set {cmd_name} {value}'
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd,

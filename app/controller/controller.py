@@ -115,7 +115,7 @@ class Controller:
             # 如果从 Mac 模式过来，需要先唤醒 Windows
             if from_mode == Mode.MAC:
                 pipeline.add_action(WakeWindowsAction(
-                    mac_address=cfg.windows.host,  # 需要配置 MAC 地址
+                    mac_address=cfg.windows.mac_address,
                     agent_host=cfg.windows.host,
                     agent_port=cfg.windows.port,
                     timeout=60.0,
@@ -138,7 +138,7 @@ class Controller:
             # 如果从 Mac 模式过来，需要先唤醒 Windows
             if from_mode == Mode.MAC:
                 pipeline.add_action(WakeWindowsAction(
-                    mac_address=cfg.windows.host,
+                    mac_address=cfg.windows.mac_address,
                     agent_host=cfg.windows.host,
                     agent_port=cfg.windows.port,
                     timeout=60.0,
@@ -207,7 +207,7 @@ class Controller:
         """手动唤醒 Windows"""
         cfg = self._config.config
         action = WakeWindowsAction(
-            mac_address=cfg.windows.host,
+            mac_address=cfg.windows.mac_address,
             agent_host=cfg.windows.host,
             agent_port=cfg.windows.port,
             timeout=60.0,

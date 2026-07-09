@@ -73,11 +73,12 @@ class WoLPlugin(Plugin):
             sock.sendto(magic_packet, (broadcast, self._port))
             sock.close()
             logger.info(f"WOL packet sent to {mac} via {broadcast}")
-            self._event_bus.publish(
-                DeviceStatusChangedEvent(
-                    device="windows", status="waking", source="WoL"
+            if self.event_bus:
+                self.event_bus.publish(
+                    DeviceStatusChangedEvent(
+                        device="windows", status="waking", source="WoL"
+                    )
                 )
-            )
             return True
         except Exception as e:
             logger.error(f"Failed to send WOL packet: {e}")

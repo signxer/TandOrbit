@@ -26,6 +26,7 @@ class BetterDisplayPlugin(Plugin):
     DEFAULT_CLI_PATH = (
         "/Applications/BetterDisplay.app/Contents/MacOS/betterdisplaycli"
     )
+    HOMEBREW_CLI_PATH = "/opt/homebrew/bin/betterdisplaycli"
 
     def __init__(self, event_bus: EventBus, config: dict[str, Any] | None = None) -> None:
         super().__init__("betterdisplay", event_bus, config)
@@ -35,6 +36,9 @@ class BetterDisplayPlugin(Plugin):
     async def initialize(self) -> bool:
         """初始化：检查 BetterDisplay CLI 是否可用"""
         cli = shutil.which("betterdisplaycli") or self._cli_path
+        # 如果 PATH 中找不到，尝试 Homebrew 路径
+        if not shutil.which(cli) and not await self._file_exists(cli):
+            cli = self.HOMEBREW_CLI_PATH
         if not shutil.which(cli) and not await self._file_exists(cli):
             self._init_error = (
                 f"BetterDisplay CLI 未找到 ({cli})。"
@@ -45,7 +49,7 @@ class BetterDisplayPlugin(Plugin):
             return False
         self._cli_path = cli
         self._set_status(PluginStatus.INITIALIZED)
-        logger.info("BetterDisplay plugin initialized")
+        logger.info(f"BetterDisplay plugin initialized (cli: {self._cli_path})")
         return True
 
     async def enable(self) -> bool:
@@ -60,7 +64,7 @@ class BetterDisplayPlugin(Plugin):
         """检查 BetterDisplay CLI 是否可执行"""
         try:
             proc = await asyncio.create_subprocess_exec(
-                self._cli_path, "--version",
+                self._cli_path, "get", "--identifiers",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -76,67 +80,78 @@ class BetterDisplayPlugin(Plugin):
 
     async def list_displays(self) -> list[DisplayInfo]:
         """列出所有显示器"""
-        output = await self._run_cli("list")
+        import json
+        output = await self._run_cli("get --identifiers")
         if output is None:
             return []
         displays = []
-        for i, line in enumerate(output.strip().split("\n"), 1):
-            if line.strip():
+        try:
+            # 输出是多个 JSON 对象，用逗号分隔
+            # 需要包装成数组
+            json_str = f"[{output}]"
+            items = json.loads(json_str)
+            for item in items:
+                if item.get("deviceType") != "Display":
+                    continue
+                tag_id = item.get("tagID", 0)
+                name = item.get("name", item.get("originalName", "Unknown"))
                 displays.append(
                     DisplayInfo(
-                        id=i,
-                        name=line.strip(),
-                        is_primary=(i == 1),
+                        id=int(tag_id),
+                        name=name,
+                        is_primary=(len(displays) == 0),
                     )
                 )
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.error(f"Failed to parse display list: {e}")
         return displays
 
     async def enable_display(self, display_id: int) -> bool:
         """启用显示器"""
-        ok = await self._run_cli(f"enable --display {display_id}")
+        ok = await self._run_cli(f"set --tagID={display_id} --connected=on")
         success = ok is not None
         if success:
-            self._event_bus.publish(
+            self.event_bus.publish(
                 DisplayChangedEvent(display_id=display_id, enabled=True, source="BetterDisplay")
             )
         return success
 
     async def disable_display(self, display_id: int) -> bool:
         """禁用显示器"""
-        ok = await self._run_cli(f"disable --display {display_id}")
+        ok = await self._run_cli(f"set --tagID={display_id} --connected=off")
         success = ok is not None
         if success:
-            self._event_bus.publish(
+            self.event_bus.publish(
                 DisplayChangedEvent(display_id=display_id, enabled=False, source="BetterDisplay")
             )
         return success
 
     async def set_primary(self, display_id: int) -> bool:
         """设置主显示器"""
-        ok = await self._run_cli(f"set-primary --display {display_id}")
+        ok = await self._run_cli(f"set --tagID={display_id} --main=on")
         return ok is not None
 
     async def set_mirror(self, source_id: int, target_id: int) -> bool:
         """设置显示器镜像"""
         ok = await self._run_cli(
-            f"mirror --source {source_id} --target {target_id}"
+            f"set --tagID={source_id} --mirror=on --targetTagID={target_id}"
         )
         return ok is not None
 
     async def set_extend(self) -> bool:
-        """设置扩展模式"""
-        ok = await self._run_cli("extend")
+        """设置扩展模式（取消所有镜像）"""
+        ok = await self._run_cli("set --mirror=off")
         return ok is not None
 
     async def save_profile(self, name: str) -> bool:
-        """保存当前显示配置"""
-        ok = await self._run_cli(f"profile save {name}")
-        return ok is not None
+        """保存当前显示配置（BetterDisplay CLI 不支持此操作）"""
+        logger.warning("BetterDisplay CLI does not support profile save")
+        return False
 
     async def load_profile(self, name: str) -> bool:
-        """加载显示配置"""
-        ok = await self._run_cli(f"profile load {name}")
-        return ok is not None
+        """加载显示配置（BetterDisplay CLI 不支持此操作）"""
+        logger.warning("BetterDisplay CLI does not support profile load")
+        return False
 
     # --- 内部方法 ---
 

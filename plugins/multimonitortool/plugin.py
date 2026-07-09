@@ -88,7 +88,7 @@ class MultiMonitorToolPlugin(Plugin):
         ok = await self._run_tool(f"/enable {display_id}")
         success = ok is not None
         if success:
-            self._event_bus.publish(
+            self.event_bus.publish(
                 DisplayChangedEvent(
                     display_id=display_id, enabled=True, source="MultiMonitorTool"
                 )
@@ -100,7 +100,7 @@ class MultiMonitorToolPlugin(Plugin):
         ok = await self._run_tool(f"/disable {display_id}")
         success = ok is not None
         if success:
-            self._event_bus.publish(
+            self.event_bus.publish(
                 DisplayChangedEvent(
                     display_id=display_id, enabled=False, source="MultiMonitorTool"
                 )

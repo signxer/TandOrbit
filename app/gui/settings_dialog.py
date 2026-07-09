@@ -162,14 +162,36 @@ class SettingsDialog(QDialog):
         widget = QWidget()
         layout = QFormLayout(widget)
 
-        group = QGroupBox("Windows Agent")
-        form = QFormLayout(group)
-        self._win_host = QLineEdit()
-        self._win_port = QSpinBox()
-        self._win_port.setRange(1, 65535)
-        form.addRow("主机地址:", self._win_host)
-        form.addRow("端口:", self._win_port)
-        layout.addRow(group)
+        is_mac = platform.system() == "Darwin"
+
+        if is_mac:
+            # macOS: 配置远程 Windows Agent
+            group = QGroupBox("Windows Agent（远程）")
+            form = QFormLayout(group)
+            self._win_host = QLineEdit()
+            self._win_mac = QLineEdit()
+            self._win_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
+            self._win_port = QSpinBox()
+            self._win_port.setRange(1, 65535)
+            form.addRow("主机地址:", self._win_host)
+            form.addRow("MAC 地址:", self._win_mac)
+            form.addRow("端口:", self._win_port)
+            layout.addRow(group)
+        else:
+            # Windows: 配置本地 Agent 服务端口
+            group = QGroupBox("Agent 服务（本机）")
+            form = QFormLayout(group)
+            self._win_port = QSpinBox()
+            self._win_port.setRange(1, 65535)
+            form.addRow("监听端口:", self._win_port)
+            hint = QLabel("Mac 端通过此端口连接到本机")
+            hint.setStyleSheet("color: #888; font-size: 11px;")
+            form.addRow("", hint)
+            layout.addRow(group)
+            # Windows 端不需要这些字段，但为了代码兼容创建空对象
+            self._win_host = QLineEdit()
+            self._win_mac = QLineEdit()
+
         return widget
 
     def _create_display_tab(self) -> QWidget:
@@ -258,7 +280,10 @@ class SettingsDialog(QDialog):
     def _load_values(self) -> None:
         """加载当前配置值"""
         cfg = self._config_manager.config
-        self._win_host.setText(cfg.windows.host)
+        is_mac = platform.system() == "Darwin"
+        if is_mac:
+            self._win_host.setText(cfg.windows.host)
+            self._win_mac.setText(cfg.windows.mac_address)
         self._win_port.setValue(cfg.windows.port)
         self._df_host.setText(cfg.deskflow.server_host)
         self._df_port.setValue(cfg.deskflow.server_port)
@@ -345,11 +370,17 @@ class SettingsDialog(QDialog):
         """保存配置"""
         primary_id = int(self._primary_id.currentData() or self._primary_id.currentText() or 1)
         secondary_id = int(self._secondary_id.currentData() or self._secondary_id.currentText() or 2)
+        is_mac = platform.system() == "Darwin"
+
+        windows_config: dict[str, Any] = {
+            "port": self._win_port.value(),
+        }
+        if is_mac:
+            windows_config["host"] = self._win_host.text()
+            windows_config["mac_address"] = self._win_mac.text()
+
         updates = {
-            "windows": {
-                "host": self._win_host.text(),
-                "port": self._win_port.value(),
-            },
+            "windows": windows_config,
             "display": {
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,

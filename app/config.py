@@ -25,6 +25,7 @@ class WindowsConfig(BaseModel):
     """Windows Agent 配置"""
 
     host: str = "192.168.1.100"
+    mac_address: str = ""
     port: int = 5000
     timeout: float = 10.0
 
