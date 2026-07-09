@@ -72,6 +72,8 @@ def _resource_path(relative: str) -> Path:
 def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     """配置日志"""
     log_path = Path(log_dir)
+    if not log_path.is_absolute():
+        log_path = Path.home() / ".tandorbit" / log_dir
     log_path.mkdir(parents=True, exist_ok=True)
     logger.remove()
     # Windows GUI 模式下 sys.stderr 可能为 None（console=False）
