@@ -329,19 +329,16 @@ class SetAudioWindowsAction(Action):
 class LocalDisplayOffAction(Action):
     """本地关闭所有显示器（Windows 端切到 Mac 模式时使用）"""
 
-    def __init__(self, display_plugin: Any = None) -> None:
+    def __init__(self) -> None:
         super().__init__("Local display off")
-        self._display = display_plugin
 
     async def execute(self) -> bool:
-        if not self._display:
-            logger.warning("No local display plugin")
+        if platform.system() != "Windows":
             return True
         try:
-            displays = await self._display.list_displays()
-            for d in displays:
-                logger.info(f"Disabling local display {d.id}: {d.name}")
-                await self._display.disable_display(d.id)
+            import ctypes
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            logger.info("All local displays off")
             return True
         except Exception as e:
             logger.warning(f"Local display off error: {e}")
@@ -352,23 +349,18 @@ class LocalDisplayOffAction(Action):
 
 
 class LocalDisplayOnAction(Action):
-    """本地启用所有显示器（Windows 端切回 Windows 模式时使用）"""
+    """本地唤醒所有显示器（Windows 端切回 Windows 模式时使用）"""
 
-    def __init__(self, display_plugin: Any = None) -> None:
+    def __init__(self) -> None:
         super().__init__("Local display on")
-        self._display = display_plugin
 
     async def execute(self) -> bool:
-        if not self._display:
-            logger.warning("No local display plugin")
+        if platform.system() != "Windows":
             return True
-        logger.info("Enabling all local displays")
         try:
-            # 启用所有显示器
-            displays = await self._display.list_displays()
-            for d in displays:
-                if not d.is_enabled:
-                    await self._display.enable_display(d.id)
+            import ctypes
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
+            logger.info("All local displays on")
             return True
         except Exception as e:
             logger.warning(f"Local display on error: {e}")

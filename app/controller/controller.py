@@ -111,8 +111,8 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # Windows 端：本地关所有显示器 + 停止 Deskflow
-                pipeline.add_action(LocalDisplayOffAction(display_plugin=display))
+                # Windows 端：关所有显示器 + 停止 Deskflow
+                pipeline.add_action(LocalDisplayOffAction())
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到 Windows 模式 ===
@@ -132,8 +132,8 @@ class Controller:
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
-                # Windows 端：本地启用所有显示器 + 停止 Deskflow
-                pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
+                # Windows 端：唤醒显示器 + 停止 Deskflow
+                pipeline.add_action(LocalDisplayOnAction())
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到共享模式 ===
