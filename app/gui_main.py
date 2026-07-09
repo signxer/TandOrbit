@@ -253,6 +253,7 @@ def _main() -> None:
 
     def _on_peer_discovered(peer):
         """发现对端后在主线程更新 UI"""
+        logger.info(f"[UI] Peer discovered callback: {peer['role']} at {peer['host']}")
         if peer["role"] == "mac":
             # Windows 端发现 Mac
             mac_host = peer["host"]
@@ -262,7 +263,7 @@ def _main() -> None:
                 logger.info(f"Auto-discovered Mac at {mac_host}, config updated")
         elif peer["role"] == "windows":
             # Mac 端发现 Windows，更新状态灯
-            logger.info(f"Windows discovered at {peer['host']}, updating status")
+            logger.info(f"[UI] Updating Windows status to online")
             window.update_device_status(
                 mac_online=True,
                 win_online=True,
@@ -276,7 +277,9 @@ def _main() -> None:
         discovery_signals.peer_discovered.emit(peer)
 
     discovery.on_peer_discovered(_on_peer_found)
-    discovery.start()
+    # 延迟启动发现服务，确保 Qt 事件循环已运行
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(500, discovery.start)
 
     # --- 连接信号 ---
     def on_mode_switch(mode: Mode) -> None:
