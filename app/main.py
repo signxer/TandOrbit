@@ -291,7 +291,9 @@ def main() -> None:
         tray.update_mode(state_manager.current_mode)
         # 不覆盖已有的状态（发现服务可能已经更新了）
         # 只设置初始状态，如果发现服务还没更新的话
+        logger.info(f"[DEBUG] on_init_done: win_online={window._win_status._online}")
         if not window._win_status._online:
+            logger.info("[DEBUG] Setting win_online=False (not overwritten by discovery)")
             window.update_device_status(
                 mac_online=True,
                 win_online=False,
@@ -302,6 +304,9 @@ def main() -> None:
         import subprocess
 
         def _check_win_online():
+            # 如果发现服务已经标记为在线，不覆盖
+            if window._win_status._online:
+                return
             win_host = config_manager.config.windows.host
             if not win_host:
                 return
@@ -313,18 +318,16 @@ def main() -> None:
                 online = result.returncode == 0
             except Exception:
                 online = False
-            cur_win = window._win_status._online
-            if online != cur_win:
+            if online:
                 window.update_device_status(
                     mac_online=True,
-                    win_online=online,
+                    win_online=True,
                     deskflow_connected=window._deskflow_status._online,
                 )
 
         win_timer = QTimer()
         win_timer.timeout.connect(_check_win_online)
         win_timer.start(5000)
-        _check_win_online()
 
     worker.init_done.connect(on_init_done)
 
