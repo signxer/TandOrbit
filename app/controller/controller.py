@@ -24,8 +24,6 @@ from app.scheduler.actions import (
     RestartDeskflowAction,
     SetAudioMacAction,
     SetAudioWindowsAction,
-    SleepMacAction,
-    SleepWindowsAction,
     StopDeskflowAction,
     WakeWindowsAction,
 )
@@ -100,44 +98,38 @@ class Controller:
         # === 切换到 Mac 模式 ===
         if to_mode == Mode.MAC:
             if is_mac:
-                # Mac 端：配置显示器 + 休眠 Windows
+                # Mac 端：配置显示器
                 pipeline.add_action(
                     ConfigureDisplaysForMac(mac_display_plugin=display, win_client=win_client)
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                pipeline.add_action(SleepWindowsAction(
-                    agent_host=cfg.windows.host,
-                    agent_port=cfg.windows.port,
-                ))
                 if audio:
                     pipeline.add_action(SetAudioMacAction(
                         audio_plugin=audio,
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # Windows 端：停止 Deskflow（显示器和休眠由 Mac 端控制）
+                # Windows 端：停止 Deskflow
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
             if is_mac:
-                # Mac 端：唤醒 Windows + 配置显示器 + 休眠自己
-                if from_mode == Mode.MAC:
-                    pipeline.add_action(WakeWindowsAction(
-                        mac_address=cfg.windows.mac_address,
-                        agent_host=cfg.windows.host,
-                        agent_port=cfg.windows.port,
-                        timeout=60.0,
-                    ))
+                # Mac 端：唤醒 Windows（如果需要）+ 配置显示器
+                pipeline.add_action(WakeWindowsAction(
+                    mac_address=cfg.windows.mac_address,
+                    agent_host=cfg.windows.host,
+                    agent_port=cfg.windows.port,
+                    timeout=60.0,
+                ))
                 pipeline.add_action(
                     ConfigureDisplaysForWindows(
                         mac_display_plugin=display, win_client=win_client
                     )
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                pipeline.add_action(SleepMacAction())
             else:
-                # Windows 端：停止 Deskflow（显示器由 Mac 端控制）
+                # Windows 端：停止 Deskflow
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到共享模式 ===
