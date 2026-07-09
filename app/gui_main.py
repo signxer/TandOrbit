@@ -135,6 +135,20 @@ def _start_agent_server(config) -> None:
 
 def main() -> None:
     """跨平台 GUI 主入口"""
+    try:
+        _main()
+    except Exception:
+        # 打包后 stderr 可能为 None，写到文件兜底
+        import traceback
+        log_dir = Path.home() / ".tandorbit" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        with open(log_dir / "crash.log", "w") as f:
+            traceback.print_exc(file=f)
+        raise
+
+
+def _main() -> None:
+    """实际主逻辑"""
     config_manager = ConfigManager()
     config = config_manager.load()
 
