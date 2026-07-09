@@ -33,24 +33,8 @@ jobs:
       - name: Build macOS app
         run: pyinstaller tandorbit.spec --noconfirm
 
-      - name: Fix bundle for code signing
+      - name: Fix bundle structure
         run: python scripts/fix_bundle_for_codesign.py dist/TandOrbit.app
-
-      - name: Ad-hoc sign the app
-        run: codesign --force --sign - dist/TandOrbit.app
-
-      - name: Debug bundle structure
-        run: |
-          echo "=== Resources symlinks ==="
-          find dist/TandOrbit.app/Contents/Resources -maxdepth 2 -type l -exec ls -la {} \;
-          echo "=== Frameworks symlinks ==="
-          find dist/TandOrbit.app/Contents/Frameworks -maxdepth 2 -type l -exec ls -la {} \;
-          echo "=== icon.png info ==="
-          ls -la dist/TandOrbit.app/Contents/Resources/icon.png 2>/dev/null || echo "not found"
-          ls -la dist/TandOrbit.app/Contents/Frameworks/icon.png 2>/dev/null || echo "not found in Frameworks"
-          echo "=== base_library.zip info ==="
-          ls -la dist/TandOrbit.app/Contents/Resources/base_library.zip 2>/dev/null || echo "not found"
-          ls -la dist/TandOrbit.app/Contents/Frameworks/base_library.zip 2>/dev/null || echo "not found in Frameworks"
 
       - name: Create DMG
         run: |
