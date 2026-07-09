@@ -26,6 +26,12 @@ class TrayIcon(QSystemTrayIcon):
             self.setIcon(icon)
         self._setup_menu()
         self._current_mode = Mode.UNKNOWN
+        # 点击 tray 图标显示主窗口
+        self.activated.connect(self._on_activated)
+
+    def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.show_window_requested.emit()
 
     def _setup_menu(self) -> None:
         """构建托盘菜单"""

@@ -14,7 +14,7 @@ from pathlib import Path
 from loguru import logger
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from app.config import ConfigManager
 from app.controller.controller import Controller
@@ -215,6 +215,14 @@ def _main() -> None:
     tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
     tray = TrayIcon(tray_icon)
     tray.show()
+
+    # 启动提示（刘海屏可能看不到 tray 图标）
+    tray.showMessage(
+        "TandOrbit",
+        "已启动，点击菜单栏图标打开窗口",
+        QSystemTrayIcon.MessageIcon.Information,
+        3000,
+    )
 
     # 创建设置对话框
     settings_dialog = SettingsDialog(
