@@ -166,44 +166,49 @@ class SettingsDialog(QDialog):
 
         is_mac = platform.system() == "Darwin"
 
+        # 本机服务端口（两边都有）
+        local_group = QGroupBox("本机服务")
+        local_form = QFormLayout(local_group)
+        self._local_port = QSpinBox()
+        self._local_port.setRange(1, 65535)
+        local_form.addRow("监听端口:", self._local_port)
+        layout.addRow(local_group)
+
         if is_mac:
             # macOS: 配置远程 Windows Agent
-            group = QGroupBox("Windows Agent（远程）")
-            form = QFormLayout(group)
+            remote_group = QGroupBox("Windows Agent（远程）")
+            remote_form = QFormLayout(remote_group)
             self._win_host = QLineEdit()
             self._win_mac = QLineEdit()
             self._win_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
             self._win_port = QSpinBox()
             self._win_port.setRange(1, 65535)
-            form.addRow("主机地址:", self._win_host)
-            form.addRow("MAC 地址:", self._win_mac)
-            form.addRow("端口:", self._win_port)
-            layout.addRow(group)
+            remote_form.addRow("主机地址:", self._win_host)
+            remote_form.addRow("MAC 地址:", self._win_mac)
+            remote_form.addRow("端口:", self._win_port)
+            layout.addRow(remote_group)
+            # 兼容字段
+            self._mac_mac = QLineEdit()
         else:
-            # Windows: 配置本地 Agent 服务端口 + Mac MAC 地址
-            group = QGroupBox("Agent 服务（本机）")
-            form = QFormLayout(group)
-            self._win_port = QSpinBox()
-            self._win_port.setRange(1, 65535)
-            form.addRow("监听端口:", self._win_port)
-            hint = QLabel("Mac 端通过此端口连接到本机")
-            hint.setStyleSheet("color: #888; font-size: 11px;")
-            form.addRow("", hint)
-            layout.addRow(group)
-
-            mac_group = QGroupBox("Mac（用于 WoL 唤醒）")
-            mac_form = QFormLayout(mac_group)
+            # Windows: 配置远程 Mac Agent
+            remote_group = QGroupBox("Mac（远程）")
+            remote_form = QFormLayout(remote_group)
+            self._mac_host = QLineEdit()
             self._mac_mac = QLineEdit()
             self._mac_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
-            mac_form.addRow("MAC 地址:", self._mac_mac)
-            mac_hint = QLabel("填写 Mac 的 MAC 地址，用于从 Windows 唤醒 Mac")
-            mac_hint.setStyleSheet("color: #888; font-size: 11px;")
-            mac_form.addRow("", mac_hint)
-            layout.addRow(mac_group)
-
-            # Windows 端不需要这些字段，但为了代码兼容创建空对象
+            self._mac_port = QSpinBox()
+            self._mac_port.setRange(1, 65535)
+            remote_form.addRow("主机地址:", self._mac_host)
+            remote_form.addRow("MAC 地址:", self._mac_mac)
+            remote_form.addRow("端口:", self._mac_port)
+            hint = QLabel("填写 Mac 的 MAC 地址，用于从 Windows 唤醒 Mac")
+            hint.setStyleSheet("color: #888; font-size: 11px;")
+            remote_form.addRow("", hint)
+            layout.addRow(remote_group)
+            # 兼容字段
             self._win_host = QLineEdit()
             self._win_mac = QLineEdit()
+            self._win_port = QSpinBox()
 
         return widget
 
@@ -353,11 +358,15 @@ class SettingsDialog(QDialog):
         cfg = self._config_manager.config
         is_mac = platform.system() == "Darwin"
         if is_mac:
+            self._local_port.setValue(cfg.mac.port)
             self._win_host.setText(cfg.windows.host)
             self._win_mac.setText(cfg.windows.mac_address)
+            self._win_port.setValue(cfg.windows.port)
         else:
+            self._local_port.setValue(cfg.windows.port)
+            self._mac_host.setText(cfg.mac.host)
             self._mac_mac.setText(cfg.mac.mac_address)
-        self._win_port.setValue(cfg.windows.port)
+            self._mac_port.setValue(cfg.mac.port)
         self._df_host.setText(cfg.deskflow.server_host)
         self._df_port.setValue(cfg.deskflow.server_port)
         self._df_client.setText(cfg.deskflow.client_name)
@@ -464,19 +473,28 @@ class SettingsDialog(QDialog):
         share_display_id = int(self._share_display.currentData() or self._share_display.currentText() or 2)
         is_mac = platform.system() == "Darwin"
 
-        windows_config: dict[str, Any] = {
-            "port": self._win_port.value(),
-        }
         if is_mac:
-            windows_config["host"] = self._win_host.text()
-            windows_config["mac_address"] = self._win_mac.text()
-
-        mac_config: dict[str, Any] = {}
-        if not is_mac:
-            mac_config["mac_address"] = self._mac_mac.text()
+            mac_config: dict[str, Any] = {
+                "port": self._local_port.value(),
+            }
+            windows_config: dict[str, Any] = {
+                "host": self._win_host.text(),
+                "mac_address": self._win_mac.text(),
+                "port": self._win_port.value(),
+            }
+        else:
+            windows_config = {
+                "port": self._local_port.value(),
+            }
+            mac_config = {
+                "host": self._mac_host.text(),
+                "mac_address": self._mac_mac.text(),
+                "port": self._mac_port.value(),
+            }
 
         updates = {
             "windows": windows_config,
+            "mac": mac_config,
             "display": {
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,

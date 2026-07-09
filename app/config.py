@@ -27,7 +27,7 @@ class WindowsConfig(BaseModel):
 
     host: str = "192.168.1.100"
     mac_address: str = ""
-    port: int = 5000
+    port: int = 5000  # Windows Agent 监听端口
     timeout: float = 10.0
 
 
@@ -36,6 +36,7 @@ class MacConfig(BaseModel):
 
     host: str = "192.168.1.100"
     mac_address: str = ""  # Mac 的 MAC 地址，用于 WoL 唤醒
+    port: int = 5001  # Mac Agent 监听端口
 
 
 class DeskflowConfig(BaseModel):

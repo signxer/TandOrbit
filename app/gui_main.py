@@ -202,23 +202,33 @@ def _main() -> None:
         config_manager=config_manager,
     )
 
-    # --- 启动 Windows Agent Server ---
+    # --- 启动 Agent Server ---
     if not is_mac:
         _start_agent_server(config, event_bus, state_manager)
 
     # --- 启动网络自动发现 ---
     from app.communication.discovery import DiscoveryService
-    discovery = DiscoveryService(local_port=config.windows.port)
+    local_port = config.mac.port if is_mac else config.windows.port
+    discovery = DiscoveryService(local_port=local_port)
     discovery.start()
 
     def _on_peer_found(peer):
-        """发现 Mac 对端后自动更新配置"""
+        """发现对端后自动更新配置和状态"""
         if peer["role"] == "mac":
+            # Windows 端发现 Mac
             mac_host = peer["host"]
             cfg = config_manager.config
             if cfg.deskflow.server_host != mac_host:
                 config_manager.update({"deskflow": {"server_host": mac_host}})
                 logger.info(f"Auto-discovered Mac at {mac_host}, config updated")
+        elif peer["role"] == "windows":
+            # Mac 端发现 Windows，更新状态灯
+            logger.info(f"Windows discovered at {peer['host']}, updating status")
+            window.update_device_status(
+                mac_online=True,
+                win_online=True,
+                deskflow_connected=False,
+            )
 
     discovery.on_peer_discovered(_on_peer_found)
 
@@ -290,7 +300,7 @@ def _main() -> None:
         import socket
         for _ in range(30):
             try:
-                s = socket.create_connection((cfg.deskflow.server_host, cfg.windows.port), timeout=2)
+                s = socket.create_connection((cfg.deskflow.server_host, cfg.mac.port), timeout=2)
                 s.close()
                 logger.info("Mac is online, switching mode")
                 await controller.switch_mode(mode)
@@ -383,6 +393,36 @@ def _main() -> None:
             mac_timer.start(5000)
             # 首次立即检测
             _check_mac_online()
+        else:
+            # Mac 端：定时 ping Windows 检测是否在线
+            from PySide6.QtCore import QTimer
+            import subprocess
+
+            win_host = config.windows.host
+
+            def _check_win_online():
+                try:
+                    result = subprocess.run(
+                        ["ping", "-c", "1", "-W", "2000", win_host],
+                        capture_output=True, timeout=3,
+                    )
+                    online = result.returncode == 0
+                except Exception:
+                    online = False
+                cur_win = window._win_status._online
+                cur_deskflow = window._deskflow_status._online
+                if online != cur_win:
+                    window.update_device_status(
+                        mac_online=True,
+                        win_online=online,
+                        deskflow_connected=cur_deskflow,
+                    )
+
+            win_timer = QTimer()
+            win_timer.timeout.connect(_check_win_online)
+            win_timer.start(5000)
+            # 首次立即检测
+            _check_win_online()
 
     worker.init_done.connect(on_init_done)
 
