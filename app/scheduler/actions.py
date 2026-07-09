@@ -173,14 +173,28 @@ class ConfigureDisplaysForMac(Action):
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Mac mode")
-        # Mac 端：启用所有显示器
+        # Mac 端：唤醒显示器 + 扩展桌面
+        if platform.system() == "Darwin":
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    "caffeinate -u -t 1",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+                logger.info("Mac displays woken up")
+            except Exception as e:
+                logger.warning(f"Mac display wake error: {e}")
+
         if self._mac_display:
             try:
                 await self._mac_display.set_extend()
+                # 重新连接之前断开的副屏
+                await self._mac_display.enable_display(2)
             except Exception as e:
                 logger.warning(f"Mac display config error: {e}")
 
-        # Windows 端：禁用副屏（如果在线）
+        # Windows 端：关闭所有显示器（Mac 驱动）
         if self._win_client:
             try:
                 health = await self._win_client.health_check()
@@ -205,14 +219,27 @@ class ConfigureDisplaysForWindows(Action):
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Windows mode")
-        # Mac 端：关闭副屏
+        # Mac 端：断开副屏 + 休眠所有显示器
         if self._mac_display:
             try:
                 await self._mac_display.disable_display(2)
-                # 等待断开生效，让显示器自动切换到 Windows 输入源
-                await asyncio.sleep(2.0)
             except Exception as e:
                 logger.warning(f"Mac display disable error: {e}")
+
+        if platform.system() == "Darwin":
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    "pmset displaysleepnow",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+                logger.info("Mac displays put to sleep")
+            except Exception as e:
+                logger.warning(f"Mac display sleep error: {e}")
+
+        # 等待显示器切换输入源
+        await asyncio.sleep(2.0)
 
         # Windows 端：启用所有显示器
         if self._win_client:
