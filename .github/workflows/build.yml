@@ -53,8 +53,11 @@ jobs:
         run: |
           mkdir -p TandOrbit.app/Contents/MacOS
           mkdir -p TandOrbit.app/Contents/Resources
+          mkdir -p TandOrbit.app/Contents/Frameworks
           cp -a dist/TandOrbit/* TandOrbit.app/Contents/MacOS/
           cp icon.icns TandOrbit.app/Contents/Resources/
+          # PyInstaller bootloader 硬编码找 Contents/Frameworks/Python
+          ln -sf ../MacOS/_internal/Python TandOrbit.app/Contents/Frameworks/Python
           cat > TandOrbit.app/Contents/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
