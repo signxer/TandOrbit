@@ -142,11 +142,17 @@ def main() -> None:
 
     # 创建主窗口
     window = MainWindow(hotkeys=config.hotkeys)
-    window.setWindowIcon(QIcon(str(_resource_path("resources/tray_icon.png"))))
+    if sys.platform == "win32":
+        window.setWindowIcon(QIcon(str(_resource_path("resources/icon.ico"))))
+    else:
+        window.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
     window.show()
 
     # 创建系统托盘
-    tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
+    if sys.platform == "win32":
+        tray_icon = QIcon(str(_resource_path("resources/icon.ico")))
+    else:
+        tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
     tray = TrayIcon(tray_icon)
     tray.show()
 
