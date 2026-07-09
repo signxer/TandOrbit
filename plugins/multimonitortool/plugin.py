@@ -185,7 +185,7 @@ class MultiMonitorToolPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                logger.error(f"PowerShell error: {stderr.decode(errors="replace").strip()}")
+                logger.error(f"PowerShell error: {stderr.decode(errors='replace').strip()}")
                 return None
             return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
