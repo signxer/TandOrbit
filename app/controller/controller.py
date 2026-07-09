@@ -111,9 +111,8 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # Windows 端：本地关副屏 + 停止 Deskflow
-                secondary_id = cfg.display.secondary_id
-                pipeline.add_action(LocalDisplayOffAction(display_plugin=display, display_id=secondary_id))
+                # Windows 端：本地关所有非主显示器 + 停止 Deskflow
+                pipeline.add_action(LocalDisplayOffAction(display_plugin=display, primary_id=cfg.display.primary_id))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到 Windows 模式 ===

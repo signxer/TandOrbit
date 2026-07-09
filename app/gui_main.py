@@ -34,6 +34,7 @@ class AsyncWorker(QThread):
     status_updated = Signal(bool, bool, bool)  # mac, win, deskflow
     mode_changed = Signal(str)
     init_report = Signal(list)  # [(name, success, reason)]
+    init_done = Signal()
 
     def __init__(self, controller: Controller) -> None:
         super().__init__()
@@ -46,6 +47,7 @@ class AsyncWorker(QThread):
         try:
             self._loop.run_until_complete(self._controller.initialize())
             self.init_report.emit(self._controller.init_results)
+            self.init_done.emit()
             # 保持事件循环运行，以便后续 run_async 提交的任务能被执行
             self._loop.run_forever()
         except Exception as e:
@@ -322,7 +324,7 @@ def _main() -> None:
             # 首次立即检测
             _check_mac_online()
 
-    worker.finished.connect(on_init_done)
+    worker.init_done.connect(on_init_done)
 
     logger.info(f"TandOrbit GUI started on {'macOS' if is_mac else 'Windows'}")
     app.exec()
