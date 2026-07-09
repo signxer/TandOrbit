@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import shutil
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -36,6 +38,24 @@ class DeskflowPlugin(Plugin):
         return self._connected
 
     async def initialize(self) -> bool:
+        system = platform.system()
+        if system == "Darwin" and not Path("/Applications/Deskflow.app").exists():
+            self._init_error = (
+                "Deskflow 未安装。"
+                "请从 https://github.com/deskflow/deskflow/releases 下载安装。"
+            )
+            logger.warning(self._init_error)
+            self._set_status(PluginStatus.ERROR)
+            return False
+        elif system == "Windows" and not shutil.which("Deskflow.exe"):
+            self._init_error = (
+                "Deskflow 未安装。"
+                "请从 https://github.com/deskflow/deskflow/releases 下载安装。"
+            )
+            logger.warning(self._init_error)
+            self._set_status(PluginStatus.ERROR)
+            return False
+
         self._set_status(PluginStatus.INITIALIZED)
         logger.info("Deskflow plugin initialized")
         return True

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import platform
+import shutil
 from typing import Any
 
 from loguru import logger
@@ -51,6 +52,17 @@ class DDCPlugin(Plugin):
             self._tool_path = self.config.get(
                 "controlmymonitor_path", "ControlMyMonitor.exe"
             )
+
+        if not shutil.which(self._tool_path):
+            tool_name = "m1ddc" if system == "Darwin" else "ControlMyMonitor.exe"
+            self._init_error = (
+                f"DDC 工具未找到 ({self._tool_path})。"
+                f"请安装 {tool_name}。"
+            )
+            logger.warning(self._init_error)
+            self._set_status(PluginStatus.ERROR)
+            return False
+
         self._set_status(PluginStatus.INITIALIZED)
         logger.info(f"DDC plugin initialized (tool: {self._tool_path})")
         return True

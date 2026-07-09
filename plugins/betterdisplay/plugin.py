@@ -36,7 +36,11 @@ class BetterDisplayPlugin(Plugin):
         """初始化：检查 BetterDisplay CLI 是否可用"""
         cli = shutil.which("betterdisplaycli") or self._cli_path
         if not shutil.which(cli) and not await self._file_exists(cli):
-            logger.error(f"BetterDisplay CLI not found at: {cli}")
+            self._init_error = (
+                f"BetterDisplay CLI 未找到 ({cli})。"
+                "请安装 BetterDisplay 并确保 betterdisplaycli 可用。"
+            )
+            logger.error(self._init_error)
             self._set_status(PluginStatus.ERROR)
             return False
         self._cli_path = cli

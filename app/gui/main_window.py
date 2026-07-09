@@ -5,9 +5,14 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QIcon
+import platform
+from pathlib import Path
+
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -19,13 +24,24 @@ from PySide6.QtWidgets import (
 from app.enums import Mode
 
 
+# 各模式对应的 SVG 资源和文字
+_MODE_CONFIG: dict[Mode, tuple[str, str]] = {
+    Mode.MAC: ("resources/apple.svg", "Mac"),
+    Mode.WINDOWS: ("resources/windows.svg", "Windows"),
+    Mode.SHARE: ("resources/mix.svg", "共享"),
+}
+
+_ICON_SIZE = QSize(32, 32)
+
+
 class StatusIndicator(QLabel):
-    """状态指示器（绿色圆点 + 文字）"""
+    """状态指示器（绿色圆点 + 文字，居中）"""
 
     def __init__(self, text: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._text = text
         self._online = False
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.update_status(False)
 
     def update_status(self, online: bool) -> None:
@@ -35,25 +51,90 @@ class StatusIndicator(QLabel):
 
 
 class ModeButton(QPushButton):
-    """模式切换按钮"""
+    """模式切换按钮（图标 + 文字的方块按钮）"""
 
-    def __init__(self, text: str, mode: Mode, parent: QWidget | None = None) -> None:
-        super().__init__(text, parent)
+    _BASE_STYLE = """
+        ModeButton {{
+            border: 2px solid {border};
+            border-radius: 10px;
+            background: {bg};
+            padding: 12px 4px;
+        }}
+        ModeButton:hover {{
+            background: {hover};
+        }}
+        ModeButton:checked {{
+            border-color: #4A90D9;
+            background: #E8F0FE;
+        }}
+    """
+    _UNCHECKED = _BASE_STYLE.format(
+        border="#D0D0D0", bg="#FFFFFF", hover="#F5F5F5",
+    )
+    _CHECKED = _BASE_STYLE  # :checked 伪状态由 Qt 内联处理
+
+    def __init__(
+        self,
+        text: str,
+        mode: Mode,
+        svg_path: str,
+        base_dir: Path,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
         self.mode = mode
         self.setCheckable(True)
-        self.setFixedHeight(40)
-        self.setFont(QFont(".AppleSystemUIFont", 13))
+        self.setFixedSize(88, 80)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet(self._UNCHECKED)
+
+        # 内部布局：图标居上，文字居下
+        inner = QVBoxLayout(self)
+        inner.setContentsMargins(0, 6, 0, 4)
+        inner.setSpacing(4)
+        inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        icon = QSvgWidget(str(base_dir / svg_path))
+        icon.setFixedSize(_ICON_SIZE)
+        icon.setStyleSheet("background: transparent;")
+        inner.addWidget(icon, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        label = QLabel(text)
+        label.setFont(QFont(".AppleSystemUIFont", 11))
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("background: transparent; border: none;")
+        inner.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
 
 
 class MainWindow(QMainWindow):
     """TandOrbit 主窗口"""
 
     mode_switch_requested = Signal(Mode)
+    sleep_display_requested = Signal()
+    settings_requested = Signal()
 
-    def __init__(self) -> None:
+    _SETTINGS_STYLE = """
+        QPushButton {
+            border: none;
+            background: transparent;
+            padding: 4px;
+            border-radius: 6px;
+        }
+        QPushButton:hover {
+            background: #F0F0F0;
+        }
+    """
+
+    def __init__(self, base_dir: Path | None = None, hotkeys: dict[str, str] | None = None) -> None:
         super().__init__()
+        self._base_dir = base_dir or Path(__file__).resolve().parent.parent.parent
+        self._hotkeys = hotkeys or {
+            "switch_mac": "Ctrl+Option+1" if platform.system() == "Darwin" else "Ctrl+Alt+1",
+            "switch_windows": "Ctrl+Option+2" if platform.system() == "Darwin" else "Ctrl+Alt+2",
+            "switch_share": "Ctrl+Option+3" if platform.system() == "Darwin" else "Ctrl+Alt+3",
+        }
         self.setWindowTitle("TandOrbit")
-        self.setFixedSize(320, 480)
+        self.setFixedSize(320, 320)
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -62,57 +143,107 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         layout = QVBoxLayout(central)
-        layout.setSpacing(12)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(10)
+        layout.setContentsMargins(24, 20, 24, 16)
 
-        # --- 标题 ---
+        # --- 图标 + 标题 ---
+        icon_label = QLabel()
+        pixmap = QPixmap(str(self._base_dir / "icon.png"))
+        # Retina: 用 2 倍物理像素渲染，避免模糊
+        dpr = self.devicePixelRatio()
+        size = int(48 * dpr)
+        scaled = pixmap.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        scaled.setDevicePixelRatio(dpr)
+        icon_label.setPixmap(scaled)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
         title = QLabel("TandOrbit")
-        title.setFont(QFont(".AppleSystemUIFont", 22, QFont.Weight.Bold))
+        title.setFont(QFont(".AppleSystemUIFont", 16, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        subtitle = QLabel("双机双屏协同管理")
-        subtitle.setFont(QFont(".AppleSystemUIFont", 11))
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #888;")
-        layout.addWidget(subtitle)
+        layout.addSpacing(12)
 
-        layout.addSpacing(16)
-
-        # --- 设备状态 ---
+        # --- 设备状态（横向，与按钮列对齐） ---
         self._mac_status = StatusIndicator("Mac")
         self._win_status = StatusIndicator("Windows")
         self._deskflow_status = StatusIndicator("Deskflow")
 
+        status_row = QHBoxLayout()
+        status_row.setSpacing(12)
         for indicator in [self._mac_status, self._win_status, self._deskflow_status]:
-            indicator.setFont(QFont(".AppleSystemUIFont", 12))
-            layout.addWidget(indicator)
+            indicator.setFont(QFont(".AppleSystemUIFont", 11))
+            status_row.addWidget(indicator)
+        layout.addLayout(status_row)
 
-        layout.addSpacing(20)
+        layout.addSpacing(6)
 
-        # --- 模式切换按钮 ---
+        # --- 模式切换按钮（横向排列） ---
         self._mode_buttons: dict[Mode, ModeButton] = {}
-        modes = [
-            ("Mac 模式", Mode.MAC),
-            ("Windows 模式", Mode.WINDOWS),
-            ("共享模式", Mode.SHARE),
-        ]
-        for text, mode in modes:
-            btn = ModeButton(text, mode)
+        self._mode_group = QButtonGroup(self)
+        self._mode_group.setExclusive(True)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
+        for mode, (svg, text) in _MODE_CONFIG.items():
+            btn = ModeButton(text, mode, svg, self._base_dir)
             btn.clicked.connect(lambda checked, m=mode: self._on_mode_clicked(m))
             self._mode_buttons[mode] = btn
-            layout.addWidget(btn)
+            self._mode_group.addButton(btn)
+            btn_row.addWidget(btn)
+        layout.addLayout(btn_row)
 
-        layout.addSpacing(16)
+        layout.addSpacing(30)
 
-        # --- 快捷键提示 ---
-        hotkeys = QLabel("Ctrl+Alt+1 / 2 / 3")
-        hotkeys.setFont(QFont(".AppleSystemUIFont", 10))
-        hotkeys.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hotkeys.setStyleSheet("color: #666;")
-        layout.addWidget(hotkeys)
+        # --- 快捷键提示（与按钮列对齐） ---
+        self._hk_labels: list[QLabel] = []
+        hk_row = QHBoxLayout()
+        hk_row.setSpacing(12)
+        for key in ("switch_mac", "switch_windows", "switch_share"):
+            lbl = QLabel(self._hotkeys.get(key, ""))
+            lbl.setFont(QFont(".AppleSystemUIFont", 10))
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet("color: #666;")
+            self._hk_labels.append(lbl)
+            hk_row.addWidget(lbl)
+        layout.addLayout(hk_row)
 
-        layout.addStretch()
+        layout.addSpacing(6)
+
+        # --- 底部工具按钮（关闭显示器 + 设置） ---
+        tool_row = QHBoxLayout()
+        tool_row.setSpacing(24)
+        tool_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        sleep_btn = self._make_icon_button("resources/sleep.svg")
+        sleep_btn.clicked.connect(self.sleep_display_requested.emit)
+        tool_row.addWidget(sleep_btn)
+
+        settings_btn = self._make_icon_button("resources/setting.svg")
+        settings_btn.clicked.connect(self.settings_requested.emit)
+        tool_row.addWidget(settings_btn)
+
+        layout.addLayout(tool_row)
+
+    def _make_icon_button(self, svg_path: str) -> QPushButton:
+        """创建无边框图标按钮"""
+        btn = QPushButton()
+        btn.setFixedSize(32, 32)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setStyleSheet(self._SETTINGS_STYLE)
+
+        icon = QSvgWidget(str(self._base_dir / svg_path))
+        icon.setFixedSize(20, 20)
+        icon.setStyleSheet("background: transparent;")
+        inner = QVBoxLayout(btn)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.addWidget(icon, alignment=Qt.AlignmentFlag.AlignCenter)
+        return btn
 
     def _on_mode_clicked(self, mode: Mode) -> None:
         """模式按钮点击"""
@@ -122,6 +253,13 @@ class MainWindow(QMainWindow):
         """更新当前模式显示"""
         for m, btn in self._mode_buttons.items():
             btn.setChecked(m == mode)
+
+    def update_hotkeys(self, hotkeys: dict[str, str]) -> None:
+        """更新快捷键提示"""
+        self._hotkeys = hotkeys
+        keys = ("switch_mac", "switch_windows", "switch_share")
+        for lbl, key in zip(self._hk_labels, keys):
+            lbl.setText(hotkeys.get(key, ""))
 
     def update_device_status(self, mac_online: bool, win_online: bool, deskflow_connected: bool) -> None:
         """更新设备状态"""

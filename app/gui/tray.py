@@ -17,10 +17,13 @@ class TrayIcon(QSystemTrayIcon):
 
     mode_switch_requested = Signal(Mode)
     show_window_requested = Signal()
+    settings_requested = Signal()
     quit_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, icon: QIcon | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        if icon and not icon.isNull():
+            self.setIcon(icon)
         self._setup_menu()
         self._current_mode = Mode.UNKNOWN
 
@@ -32,6 +35,11 @@ class TrayIcon(QSystemTrayIcon):
         show_action = QAction("显示主窗口", menu)
         show_action.triggered.connect(self.show_window_requested.emit)
         menu.addAction(show_action)
+
+        # 设置
+        settings_action = QAction("设置...", menu)
+        settings_action.triggered.connect(self.settings_requested.emit)
+        menu.addAction(settings_action)
 
         menu.addSeparator()
 

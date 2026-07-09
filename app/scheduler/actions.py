@@ -324,3 +324,47 @@ class SetAudioWindowsAction(Action):
 
     async def rollback(self) -> bool:
         return True
+
+
+class DisplaySleepAction(Action):
+    """仅关闭显示器（不休眠电脑），让显示器自动识别其他信号源"""
+
+    def __init__(self) -> None:
+        super().__init__("Display Sleep")
+
+    async def execute(self) -> bool:
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                proc = await asyncio.create_subprocess_shell(
+                    "pmset displaysleepnow",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+                success = proc.returncode == 0
+            elif system == "Windows":
+                proc = await asyncio.create_subprocess_shell(
+                    'powershell -Command "(Add-Type \'[DllImport("user32.dll")]'
+                    "public static extern IntPtr SendMessage(IntPtr hWnd,uint msg,"
+                    "IntPtr wParam,IntPtr lParam);' -Name 'Win32' -Namespace 'Native'"
+                    " -PassThru)::SendMessage(0xFFFF,0x0112,0xF170,2)\"",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+                success = proc.returncode == 0
+            else:
+                logger.warning(f"Display sleep not supported on {system}")
+                return False
+
+            if success:
+                logger.info("Display sleep command sent")
+            return success
+        except Exception as e:
+            self.error = f"Failed to sleep display: {e}"
+            logger.error(self.error)
+            return False
+
+    async def rollback(self) -> bool:
+        return True

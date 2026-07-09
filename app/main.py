@@ -11,7 +11,8 @@ from pathlib import Path
 
 from loguru import logger
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QIcon
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.config import ConfigManager
 from app.controller.controller import Controller
@@ -37,6 +38,7 @@ class AsyncWorker(QThread):
 
     status_updated = Signal(bool, bool, bool)  # mac, win, deskflow
     mode_changed = Signal(str)
+    init_report = Signal(list)  # [(name, success, reason)]
 
     def __init__(self, controller: Controller) -> None:
         super().__init__()
@@ -48,6 +50,7 @@ class AsyncWorker(QThread):
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._controller.initialize())
+            self.init_report.emit(self._controller.init_results)
         except Exception as e:
             logger.error(f"Initialization error: {e}")
 
@@ -55,6 +58,13 @@ class AsyncWorker(QThread):
         """在工作线程中执行异步任务"""
         if self._loop:
             asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+
+def _resource_path(relative: str) -> Path:
+    """获取资源文件路径（兼容 PyInstaller 打包和开发模式）"""
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / relative
+    return Path(__file__).resolve().parent.parent / relative
 
 
 def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
@@ -108,13 +118,32 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    # macOS: 开发模式下隐藏 Dock 图标（打包后由 LSUIElement 处理）
+    if sys.platform == "darwin":
+        try:
+            from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
+            NSApplication.sharedApplication().setActivationPolicy_(
+                NSApplicationActivationPolicyAccessory
+            )
+        except ImportError:
+            # PyObjC 不可用时（如打包环境），LSUIElement 已处理
+            pass
+
     # 创建主窗口
-    window = MainWindow()
+    window = MainWindow(hotkeys=config.hotkeys)
     window.show()
 
     # 创建系统托盘
-    tray = TrayIcon()
+    tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
+    tray = TrayIcon(tray_icon)
     tray.show()
+
+    # 创建设置对话框
+    settings_dialog = SettingsDialog(
+        config_manager,
+        plugin_provider=lambda: plugin_registry.get_all(),
+        parent=window,
+    )
 
     # 创建异步工作线程
     worker = AsyncWorker(controller)
@@ -129,18 +158,49 @@ def main() -> None:
         window.update_mode(mode)
         tray.update_mode(mode)
 
+    def open_settings() -> None:
+        settings_dialog._load_values()  # 刷新当前配置
+        if settings_dialog.exec():  # 用户点了保存
+            window.update_hotkeys(config_manager.config.hotkeys)
+
     window.mode_switch_requested.connect(on_mode_switch)
+    window.sleep_display_requested.connect(lambda: worker.run_async(controller.sleep_display()))
+    window.settings_requested.connect(open_settings)
     tray.mode_switch_requested.connect(on_mode_switch)
     tray.show_window_requested.connect(window.show)
+    tray.settings_requested.connect(open_settings)
     tray.quit_requested.connect(app.quit)
 
     # 订阅事件
     event_bus.subscribe(ModeChangedEvent, on_mode_changed)
 
+    # 异步状态更新 → UI
+    worker.status_updated.connect(window.update_device_status)
+
+    # 插件初始化报告 → 提示缺失依赖
+    def on_init_report(results: list) -> None:
+        failed = [(name, reason) for name, ok, reason in results if not ok]
+        if not failed:
+            return
+        lines = "\n".join(f"• {name}: {reason}" for name, reason in failed)
+        QMessageBox.warning(
+            window,
+            "初始化提示",
+            f"以下插件未能正常初始化，部分功能可能不可用：\n\n{lines}",
+        )
+
+    worker.init_report.connect(on_init_report)
+
     # 初始化完成后更新 UI
     def on_init_done() -> None:
         window.update_mode(state_manager.current_mode)
         tray.update_mode(state_manager.current_mode)
+        # Mac 本机已启动，标记为在线
+        window.update_device_status(
+            mac_online=True,
+            win_online=False,
+            deskflow_connected=False,
+        )
 
     worker.finished.connect(on_init_done)
 

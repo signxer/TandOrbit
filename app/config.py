@@ -51,6 +51,23 @@ class AudioConfig(BaseModel):
     windows_output: str = "USB DAC"
 
 
+import platform
+
+
+def _default_hotkeys() -> dict[str, str]:
+    if platform.system() == "Darwin":
+        return {
+            "switch_mac": "Ctrl+Option+1",
+            "switch_windows": "Ctrl+Option+2",
+            "switch_share": "Ctrl+Option+3",
+        }
+    return {
+        "switch_mac": "Ctrl+Alt+1",
+        "switch_windows": "Ctrl+Alt+2",
+        "switch_share": "Ctrl+Alt+3",
+    }
+
+
 class AppConfig(BaseModel):
     """应用总配置"""
 
@@ -59,13 +76,7 @@ class AppConfig(BaseModel):
     deskflow: DeskflowConfig = Field(default_factory=DeskflowConfig)
     betterdisplay: BetterDisplayConfig = Field(default_factory=BetterDisplayConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
-    hotkeys: dict[str, str] = Field(
-        default_factory=lambda: {
-            "switch_mac": "Ctrl+Alt+1",
-            "switch_windows": "Ctrl+Alt+2",
-            "switch_share": "Ctrl+Alt+3",
-        }
-    )
+    hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
     log_level: str = "INFO"
     log_dir: str = "logs"
     log_retention_days: int = 30

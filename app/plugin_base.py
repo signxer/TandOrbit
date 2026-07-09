@@ -25,6 +25,7 @@ class Plugin(ABC):
         self.event_bus = event_bus
         self.config = config or {}
         self._status = PluginStatus.REGISTERED
+        self._init_error: str = ""
 
     @property
     def status(self) -> PluginStatus:
@@ -92,24 +93,31 @@ class PluginRegistry:
         """获取所有插件"""
         return dict(self._plugins)
 
-    async def initialize_all(self) -> bool:
-        """初始化所有插件"""
+    async def initialize_all(self) -> tuple[bool, list[tuple[str, bool, str]]]:
+        """初始化所有插件，返回 (全部成功, [(插件名, 成功, 原因)])"""
         all_ok = True
+        results: list[tuple[str, bool, str]] = []
         for name, plugin in self._plugins.items():
             try:
+                plugin._init_error = ""
                 ok = await plugin.initialize()
                 if ok:
                     plugin._set_status(PluginStatus.INITIALIZED)
                     logger.info(f"Plugin {name} initialized")
+                    results.append((name, True, ""))
                 else:
                     plugin._set_status(PluginStatus.ERROR)
-                    logger.error(f"Plugin {name} failed to initialize")
+                    reason = plugin._init_error or f"Plugin {name} failed to initialize"
+                    logger.error(reason)
+                    results.append((name, False, reason))
                     all_ok = False
             except Exception as e:
                 plugin._set_status(PluginStatus.ERROR)
-                logger.error(f"Plugin {name} initialization error: {e}")
+                msg = f"Plugin {name} initialization error: {e}"
+                logger.error(msg)
+                results.append((name, False, msg))
                 all_ok = False
-        return all_ok
+        return all_ok, results
 
     async def enable_all(self) -> bool:
         """启用所有插件"""

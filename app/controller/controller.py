@@ -20,6 +20,7 @@ from app.scheduler.actions import (
     ConfigureDisplaysForMac,
     ConfigureDisplaysForShare,
     ConfigureDisplaysForWindows,
+    DisplaySleepAction,
     RestartDeskflowAction,
     SetAudioMacAction,
     SetAudioWindowsAction,
@@ -61,6 +62,11 @@ class Controller:
     @property
     def is_transitioning(self) -> bool:
         return self._state.is_transitioning
+
+    @property
+    def init_results(self) -> list[tuple[str, bool, str]]:
+        """插件初始化结果 [(name, success, reason)]"""
+        return getattr(self, "_init_results", [])
 
     def _get_win_client(self) -> MacClient:
         """获取或创建 Windows Agent 客户端"""
@@ -208,6 +214,12 @@ class Controller:
         )
         return await action.execute()
 
+    async def sleep_display(self) -> bool:
+        """仅关闭显示器（不休眠电脑）"""
+        logger.info("Controller: sleeping display")
+        action = DisplaySleepAction()
+        return await action.execute()
+
     async def get_system_status(self) -> dict[str, object]:
         """获取系统状态"""
         health = await self._plugins.health_check_all()
@@ -230,9 +242,10 @@ class Controller:
         windows_online = await self.check_windows_agent()
         logger.info(f"Windows Agent online: {windows_online}")
 
-        ok = await self._plugins.initialize_all()
+        ok, init_results = await self._plugins.initialize_all()
         if ok:
             await self._plugins.enable_all()
+        self._init_results = init_results
 
         # 如果 Windows 在线，设置初始状态为 MAC
         if windows_online:
