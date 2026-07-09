@@ -18,7 +18,7 @@ setup(
             "resources/icon.icns",
             "resources/icon.ico",
         ]),
-        ("config", ["config/config.yaml"]),
+        ("config", ["config/default.yaml"]),
         (".", ["icon.png"]),
     ],
     options={
