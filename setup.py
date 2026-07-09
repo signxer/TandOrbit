@@ -2,6 +2,9 @@
 from setuptools import setup
 
 setup(
+    name="TandOrbit",
+    version="1.0.0",
+    install_requires=[],
     app=["app/gui_main.py"],
     data_files=[
         ("resources", [

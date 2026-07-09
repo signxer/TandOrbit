@@ -7,7 +7,7 @@ name = "tandorbit"
 version = "1.0.0"
 description = "TandOrbit — 双机双屏智能协同管理平台"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 requires-python = ">=3.11"
 authors = [
     {name = "Shuheng Cao"},
