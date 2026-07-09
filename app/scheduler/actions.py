@@ -326,6 +326,56 @@ class SetAudioWindowsAction(Action):
         return True
 
 
+class LocalDisplayOffAction(Action):
+    """本地关闭副屏（Windows 端切到 Mac 模式时使用）"""
+
+    def __init__(self, display_plugin: Any = None, display_id: int = 2) -> None:
+        super().__init__("Local display off")
+        self._display = display_plugin
+        self._display_id = display_id
+
+    async def execute(self) -> bool:
+        if not self._display:
+            logger.warning("No local display plugin")
+            return True
+        logger.info(f"Disabling local display {self._display_id}")
+        try:
+            return await self._display.disable_display(self._display_id)
+        except Exception as e:
+            logger.warning(f"Local display off error: {e}")
+            return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
+class LocalDisplayOnAction(Action):
+    """本地启用所有显示器（Windows 端切回 Windows 模式时使用）"""
+
+    def __init__(self, display_plugin: Any = None) -> None:
+        super().__init__("Local display on")
+        self._display = display_plugin
+
+    async def execute(self) -> bool:
+        if not self._display:
+            logger.warning("No local display plugin")
+            return True
+        logger.info("Enabling all local displays")
+        try:
+            # 启用所有显示器
+            displays = await self._display.list_displays()
+            for d in displays:
+                if not d.is_enabled:
+                    await self._display.enable_display(d.id)
+            return True
+        except Exception as e:
+            logger.warning(f"Local display on error: {e}")
+            return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
 class DisplaySleepAction(Action):
     """仅关闭显示器（不休眠电脑），让显示器自动识别其他信号源"""
 

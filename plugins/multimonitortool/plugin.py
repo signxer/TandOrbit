@@ -66,21 +66,40 @@ class MultiMonitorToolPlugin(Plugin):
 
     async def list_displays(self) -> list[DisplayInfo]:
         """列出所有显示器"""
+        import csv
+        import io
+        import re
+
         output = await self._run_tool("/scomma")
         if output is None:
             return []
         displays = []
-        for i, line in enumerate(output.strip().split("\n"), 1):
-            if line.strip() and "," in line:
-                parts = line.split(",")
-                name = parts[0] if parts else f"Display {i}"
-                displays.append(
-                    DisplayInfo(
-                        id=i,
-                        name=name.strip('"'),
-                        is_primary=(i == 1),
-                    )
+        reader = csv.reader(io.StringIO(output))
+        header = next(reader, None)  # 跳过表头
+        if not header:
+            return []
+        for row in reader:
+            if len(row) < 13:
+                continue
+            # Name 列 (index 12): \\.\DISPLAY1
+            name_col = row[12].strip()
+            match = re.search(r"DISPLAY(\d+)", name_col)
+            display_id = int(match.group(1)) if match else len(displays) + 1
+            # Short Monitor ID (index 17) 作为可读名称
+            short_id = row[17].strip() if len(row) > 17 else ""
+            # Resolution (index 0)
+            resolution = row[0].strip()
+            # Primary (index 5): Yes/No
+            is_primary = row[5].strip().lower() == "yes" if len(row) > 5 else False
+            # 构建显示名称: "SDX32AC (3840x2160) PRIMARY" 或 "ICD3208 (3840x2160)"
+            label = f"{short_id} ({resolution})" if short_id else f"Display {display_id} ({resolution})"
+            displays.append(
+                DisplayInfo(
+                    id=display_id,
+                    name=label,
+                    is_primary=is_primary,
                 )
+            )
         return displays
 
     async def enable_display(self, display_id: int) -> bool:
