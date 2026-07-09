@@ -23,6 +23,7 @@ from app.scheduler.actions import (
     DisplaySleepAction,
     LocalDisplayOffAction,
     LocalDisplayOnAction,
+    LocalDisplayShareAction,
     RestartDeskflowAction,
     SetAudioMacAction,
     SetAudioWindowsAction,
@@ -152,6 +153,12 @@ class Controller:
                         mac_display_plugin=display, win_client=win_client
                     )
                 )
+            else:
+                # Windows 端：保留选定显示器，关闭其他（留给 Mac）
+                pipeline.add_action(LocalDisplayShareAction(
+                    display_plugin=display,
+                    keep_display_id=cfg.display.share_display_id,
+                ))
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
         return pipeline

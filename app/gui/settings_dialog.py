@@ -208,10 +208,12 @@ class SettingsDialog(QDialog):
         refresh_btn = QPushButton("刷新")
         refresh_btn.setFixedWidth(60)
         refresh_btn.clicked.connect(self._refresh_displays)
+        self._share_display = QComboBox()
         hint = QLabel("选择显示器后对应 ID 会自动填入配置")
         hint.setStyleSheet("color: #888; font-size: 11px;")
         form.addRow("主显示器:", self._primary_id)
         form.addRow("副显示器:", self._secondary_id)
+        form.addRow("共享模式留 Windows:", self._share_display)
         row = QHBoxLayout()
         row.addWidget(refresh_btn)
         row.addStretch()
@@ -351,6 +353,7 @@ class SettingsDialog(QDialog):
         self._refresh_displays()
         self._set_combo_value(self._primary_id, str(cfg.display.primary_id))
         self._set_combo_value(self._secondary_id, str(cfg.display.secondary_id))
+        self._set_combo_value(self._share_display, str(cfg.display.share_display_id))
 
         # 音频 — 尝试从插件获取列表
         self._refresh_audio()
@@ -399,10 +402,12 @@ class SettingsDialog(QDialog):
 
         self._primary_id.clear()
         self._secondary_id.clear()
+        self._share_display.clear()
         for d in displays:
             label = f"{d.id} - {d.name}"
             self._primary_id.addItem(label, str(d.id))
             self._secondary_id.addItem(label, str(d.id))
+            self._share_display.addItem(label, str(d.id))
 
     def _refresh_audio(self) -> None:
         """从插件刷新音频设备列表"""
@@ -434,6 +439,7 @@ class SettingsDialog(QDialog):
         """保存配置"""
         primary_id = int(self._primary_id.currentData() or self._primary_id.currentText() or 1)
         secondary_id = int(self._secondary_id.currentData() or self._secondary_id.currentText() or 2)
+        share_display_id = int(self._share_display.currentData() or self._share_display.currentText() or 2)
         is_mac = platform.system() == "Darwin"
 
         windows_config: dict[str, Any] = {
@@ -448,6 +454,7 @@ class SettingsDialog(QDialog):
             "display": {
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,
+                "share_display_id": share_display_id,
             },
             "deskflow": {
                 "server_host": self._df_host.text(),

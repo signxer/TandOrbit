@@ -18,6 +18,7 @@ class DisplayConfig(BaseModel):
 
     primary_id: int = 1
     secondary_id: int = 2
+    share_display_id: int = 2  # 共享模式下留给 Windows 的显示器 ID
     profiles: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 

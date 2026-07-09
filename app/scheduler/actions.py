@@ -348,6 +348,34 @@ class LocalDisplayOffAction(Action):
         return True
 
 
+class LocalDisplayShareAction(Action):
+    """本地共享模式：保留指定显示器，关闭其他（留给 Mac）"""
+
+    def __init__(self, display_plugin: Any = None, keep_display_id: int = 2) -> None:
+        super().__init__("Local display share")
+        self._display = display_plugin
+        self._keep_id = keep_display_id
+
+    async def execute(self) -> bool:
+        if not self._display:
+            logger.warning("No local display plugin")
+            return True
+        try:
+            displays = await self._display.list_displays()
+            for d in displays:
+                if d.id != self._keep_id:
+                    logger.info(f"Disabling display {d.id} for Mac: {d.name}")
+                    await self._display.disable_display(d.id)
+            logger.info(f"Keeping display {self._keep_id} for Windows")
+            return True
+        except Exception as e:
+            logger.warning(f"Local display share error: {e}")
+            return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
 class LocalDisplayOnAction(Action):
     """本地唤醒所有显示器（Windows 端切回 Windows 模式时使用）"""
 
