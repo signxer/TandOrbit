@@ -160,22 +160,6 @@ def main() -> None:
     # 启动 Mac Agent Server（权威模式状态源）
     _start_agent_server(config, event_bus, state_manager)
 
-    # 启动网络自动发现
-    from app.communication.discovery import DiscoveryService
-    discovery = DiscoveryService(local_port=config.mac.port)
-    discovery.start()
-
-    def _on_peer_found(peer):
-        """发现 Windows 对端后自动更新配置"""
-        if peer["role"] == "windows":
-            win_host = peer["host"]
-            cfg = config_manager.config
-            if cfg.windows.host != win_host:
-                config_manager.update({"windows": {"host": win_host}})
-                logger.info(f"Auto-discovered Windows at {win_host}, config updated")
-
-    discovery.on_peer_discovered(_on_peer_found)
-
     # 创建 Qt 应用
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -217,6 +201,43 @@ def main() -> None:
     # 创建异步工作线程
     worker = AsyncWorker(controller)
     worker.start()
+
+    # --- 启动发现服务（window 创建后） ---
+    from PySide6.QtCore import QTimer, QObject, Signal
+
+    class DiscoverySignals(QObject):
+        peer_discovered = Signal(dict)
+
+    discovery_signals = DiscoverySignals()
+
+    from app.communication.discovery import DiscoveryService
+    discovery = DiscoveryService(local_port=config.mac.port)
+
+    def _on_peer_discovered(peer):
+        """发现对端后在主线程更新 UI"""
+        logger.info(f"[UI] Peer discovered: {peer['role']} at {peer['host']}")
+        if peer["role"] == "windows":
+            win_host = peer["host"]
+            cfg = config_manager.config
+            if cfg.windows.host != win_host:
+                config_manager.update({"windows": {"host": win_host}})
+                logger.info(f"Auto-discovered Windows at {win_host}, config updated")
+            # 更新状态灯
+            window.update_device_status(
+                mac_online=True,
+                win_online=True,
+                deskflow_connected=False,
+            )
+
+    discovery_signals.peer_discovered.connect(_on_peer_discovered)
+
+    def _on_peer_found(peer):
+        """发现对端（后台线程）→ 通过信号转发到主线程"""
+        discovery_signals.peer_discovered.emit(peer)
+
+    discovery.on_peer_discovered(_on_peer_found)
+    # 延迟启动发现服务，确保 Qt 事件循环已运行
+    QTimer.singleShot(500, discovery.start)
 
     # 连接信号
     def on_mode_switch(mode: Mode) -> None:
