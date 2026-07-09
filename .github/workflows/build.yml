@@ -47,13 +47,12 @@ jobs:
           rm -rf icon.iconset
 
       - name: Build macOS app (directory mode)
-        run: pyinstaller -D -w --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --runtime-hook=runtime_hook.py --name=TandOrbit app/gui_main.py
+        run: pyinstaller -D -c --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --runtime-hook=runtime_hook.py --name=TandOrbit app/gui_main.py
 
       - name: Create .app bundle
         run: |
           mkdir -p TandOrbit.app/Contents/MacOS
           mkdir -p TandOrbit.app/Contents/Resources
-          # 复制 PyInstaller 输出（含 Qt 依赖）
           cp -a dist/TandOrbit/* TandOrbit.app/Contents/MacOS/
           cp icon.icns TandOrbit.app/Contents/Resources/
           cat > TandOrbit.app/Contents/Info.plist << 'EOF'
