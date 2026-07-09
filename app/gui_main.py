@@ -1,12 +1,14 @@
-"""TandOrbit Mac 端主入口
+"""TandOrbit 跨平台 GUI 入口
 
-启动 Mac 端 GUI 和控制系统。
+在 macOS 和 Windows 上启动相同的 GUI 界面。
+Windows 上同时启动 HTTP Agent Server，接收 Mac 端的控制指令。
 """
 
 from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 
 from loguru import logger
@@ -24,13 +26,6 @@ from app.gui.tray import TrayIcon
 from app.plugin_base import PluginRegistry
 from app.scheduler.scheduler import Scheduler
 from app.state.state_machine import StateManager
-
-# 插件导入
-from plugins.betterdisplay.plugin import BetterDisplayPlugin
-from plugins.clipboard.plugin import ClipboardPlugin
-from plugins.ddc.plugin import DDCPlugin
-from plugins.deskflow.plugin import DeskflowPlugin
-from plugins.wol.plugin import WoLPlugin
 
 
 class AsyncWorker(QThread):
@@ -81,31 +76,95 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     )
 
 
+def _start_agent_server(config) -> None:
+    """在后台线程启动 Windows Agent HTTP Server"""
+    import uvicorn
+
+    from app.communication.agent_server import AgentServer
+    from plugins.audio.plugin import AudioPlugin
+    from plugins.deskflow.plugin import DeskflowPlugin
+    from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
+
+    event_bus = EventBus()
+    display_plugin = MultiMonitorToolPlugin(event_bus)
+    deskflow_plugin = DeskflowPlugin(event_bus, config.deskflow.model_dump())
+    audio_plugin = AudioPlugin(event_bus, config.audio.model_dump())
+
+    server = AgentServer(host="0.0.0.0", port=config.windows.port)
+    server.set_plugins(
+        display=display_plugin,
+        deskflow=deskflow_plugin,
+        audio=audio_plugin,
+    )
+
+    app = server.create_app()
+
+    def _run_server():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        async def _init_and_serve():
+            await display_plugin.initialize()
+            await display_plugin.enable()
+            await deskflow_plugin.initialize()
+            await deskflow_plugin.enable()
+            await audio_plugin.initialize()
+            await audio_plugin.enable()
+            logger.info(f"Agent server starting on port {config.windows.port}")
+            uv_config = uvicorn.Config(
+                app, host="0.0.0.0", port=config.windows.port, log_level="warning"
+            )
+            uv_server = uvicorn.Server(uv_config)
+            await uv_server.serve()
+
+        loop.run_until_complete(_init_and_serve())
+
+    thread = threading.Thread(target=_run_server, daemon=True)
+    thread.start()
+    logger.info("Agent server thread started")
+
+
 def main() -> None:
-    """Mac 端主入口"""
-    # 加载配置
+    """跨平台 GUI 主入口"""
     config_manager = ConfigManager()
     config = config_manager.load()
 
-    # 配置日志
     setup_logging(config.log_dir, config.log_level)
 
-    logger.info("TandOrbit Mac client starting...")
+    is_mac = sys.platform == "darwin"
+    logger.info(f"TandOrbit starting on {'macOS' if is_mac else 'Windows'}...")
 
-    # 创建核心组件
+    # --- 创建核心组件 ---
     event_bus = EventBus()
     state_manager = StateManager(event_bus)
     scheduler = Scheduler(event_bus)
     plugin_registry = PluginRegistry(event_bus)
 
-    # 注册插件
-    plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
-    plugin_registry.register(DeskflowPlugin(event_bus, config.deskflow.model_dump()))
-    plugin_registry.register(WoLPlugin(event_bus))
-    plugin_registry.register(DDCPlugin(event_bus))
-    plugin_registry.register(ClipboardPlugin(event_bus))
+    # --- 注册平台相关插件 ---
+    if is_mac:
+        from plugins.betterdisplay.plugin import BetterDisplayPlugin
+        from plugins.clipboard.plugin import ClipboardPlugin
+        from plugins.ddc.plugin import DDCPlugin
+        from plugins.deskflow.plugin import DeskflowPlugin
+        from plugins.wol.plugin import WoLPlugin
 
-    # 创建控制器
+        plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
+        plugin_registry.register(DeskflowPlugin(event_bus, config.deskflow.model_dump()))
+        plugin_registry.register(WoLPlugin(event_bus))
+        plugin_registry.register(DDCPlugin(event_bus))
+        plugin_registry.register(ClipboardPlugin(event_bus))
+    else:
+        from plugins.audio.plugin import AudioPlugin
+        from plugins.ddc.plugin import DDCPlugin
+        from plugins.deskflow.plugin import DeskflowPlugin
+        from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
+
+        plugin_registry.register(MultiMonitorToolPlugin(event_bus))
+        plugin_registry.register(DeskflowPlugin(event_bus, config.deskflow.model_dump()))
+        plugin_registry.register(AudioPlugin(event_bus, config.audio.model_dump()))
+        plugin_registry.register(DDCPlugin(event_bus))
+
+    # --- 创建控制器 ---
     controller = Controller(
         event_bus=event_bus,
         state_manager=state_manager,
@@ -114,20 +173,13 @@ def main() -> None:
         config_manager=config_manager,
     )
 
-    # 创建 Qt 应用
+    # --- 启动 Windows Agent Server ---
+    if not is_mac:
+        _start_agent_server(config)
+
+    # --- 创建 Qt 应用 ---
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
-
-    # macOS: 开发模式下隐藏 Dock 图标（打包后由 LSUIElement 处理）
-    if sys.platform == "darwin":
-        try:
-            from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
-            NSApplication.sharedApplication().setActivationPolicy_(
-                NSApplicationActivationPolicyAccessory
-            )
-        except ImportError:
-            # PyObjC 不可用时（如打包环境），LSUIElement 已处理
-            pass
 
     # 创建主窗口
     window = MainWindow(hotkeys=config.hotkeys)
@@ -150,7 +202,7 @@ def main() -> None:
     worker = AsyncWorker(controller)
     worker.start()
 
-    # 连接信号
+    # --- 连接信号 ---
     def on_mode_switch(mode: Mode) -> None:
         worker.run_async(controller.switch_mode(mode))
 
@@ -160,8 +212,8 @@ def main() -> None:
         tray.update_mode(mode)
 
     def open_settings() -> None:
-        settings_dialog._load_values()  # 刷新当前配置
-        if settings_dialog.exec():  # 用户点了保存
+        settings_dialog._load_values()
+        if settings_dialog.exec():
             window.update_hotkeys(config_manager.config.hotkeys)
 
     window.mode_switch_requested.connect(on_mode_switch)
@@ -196,22 +248,21 @@ def main() -> None:
     def on_init_done() -> None:
         window.update_mode(state_manager.current_mode)
         tray.update_mode(state_manager.current_mode)
-        # Mac 本机已启动，标记为在线
         window.update_device_status(
-            mac_online=True,
-            win_online=False,
+            mac_online=is_mac,
+            win_online=not is_mac,
             deskflow_connected=False,
         )
 
     worker.finished.connect(on_init_done)
 
-    logger.info("TandOrbit Mac client started")
+    logger.info(f"TandOrbit GUI started on {'macOS' if is_mac else 'Windows'}")
     app.exec()
 
     # 清理
     worker.run_async(controller.shutdown())
     worker.wait(3000)
-    logger.info("TandOrbit Mac client stopped")
+    logger.info("TandOrbit stopped")
 
 
 if __name__ == "__main__":

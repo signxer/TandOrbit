@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import platform
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QFont, QPixmap
+from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -23,6 +24,15 @@ from PySide6.QtWidgets import (
 
 from app.enums import Mode
 
+# 平台字体
+_FONT = ".AppleSystemUIFont" if platform.system() == "Darwin" else "Segoe UI"
+
+
+def _resource_path(relative: str) -> Path:
+    """获取资源文件路径（兼容 PyInstaller 打包和开发模式）"""
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS) / relative
+    return Path(__file__).resolve().parent.parent.parent / relative
 
 # 各模式对应的 SVG 资源和文字
 _MODE_CONFIG: dict[Mode, tuple[str, str]] = {
@@ -100,7 +110,7 @@ class ModeButton(QPushButton):
         inner.addWidget(icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
         label = QLabel(text)
-        label.setFont(QFont(".AppleSystemUIFont", 11))
+        label.setFont(QFont(_FONT, 11))
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet("background: transparent; border: none;")
         inner.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
@@ -127,7 +137,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, base_dir: Path | None = None, hotkeys: dict[str, str] | None = None) -> None:
         super().__init__()
-        self._base_dir = base_dir or Path(__file__).resolve().parent.parent.parent
+        self._base_dir = base_dir or _resource_path(".")
         self._hotkeys = hotkeys or {
             "switch_mac": "Ctrl+Option+1" if platform.system() == "Darwin" else "Ctrl+Alt+1",
             "switch_windows": "Ctrl+Option+2" if platform.system() == "Darwin" else "Ctrl+Alt+2",
@@ -163,7 +173,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(icon_label)
 
         title = QLabel("TandOrbit")
-        title.setFont(QFont(".AppleSystemUIFont", 16, QFont.Weight.Bold))
+        title.setFont(QFont(_FONT, 16, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
@@ -177,7 +187,7 @@ class MainWindow(QMainWindow):
         status_row = QHBoxLayout()
         status_row.setSpacing(12)
         for indicator in [self._mac_status, self._win_status, self._deskflow_status]:
-            indicator.setFont(QFont(".AppleSystemUIFont", 11))
+            indicator.setFont(QFont(_FONT, 11))
             status_row.addWidget(indicator)
         layout.addLayout(status_row)
 
@@ -206,7 +216,7 @@ class MainWindow(QMainWindow):
         hk_row.setSpacing(12)
         for key in ("switch_mac", "switch_windows", "switch_share"):
             lbl = QLabel(self._hotkeys.get(key, ""))
-            lbl.setFont(QFont(".AppleSystemUIFont", 10))
+            lbl.setFont(QFont(_FONT, 10))
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet("color: #666;")
             self._hk_labels.append(lbl)

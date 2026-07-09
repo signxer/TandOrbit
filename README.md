@@ -187,6 +187,16 @@ TandOrbit/
 - **macOS**: `TandOrbit-macOS.dmg`
 - **Windows**: `TandOrbit-Windows.zip`
 
+### macOS 安装说明
+
+由于应用未使用 Apple Developer 证书签名，首次打开时会提示"无法打开"或"已损坏"。需要手动移除系统隔离标记：
+
+```bash
+sudo xattr -cr /Applications/TandOrbit.app
+```
+
+或者：右键点击应用 → 选择「打开」→ 在弹窗中再次点击「打开」。
+
 ### 从源码构建
 
 ```bash

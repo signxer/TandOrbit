@@ -67,14 +67,14 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -v
 
-      - name: Build Windows Agent
-        run: pyinstaller tandorbit_agent.spec --noconfirm
+      - name: Build Windows GUI
+        run: pyinstaller tandorbit_gui.spec --noconfirm
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: TandOrbit-Windows
-          path: dist/TandOrbitAgent/
+          path: dist/TandOrbit/
 
   release:
     name: Create Release

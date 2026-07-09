@@ -34,7 +34,8 @@ dev = [
 ]
 
 [project.scripts]
-tandorbit = "app.main:main"
+tandorbit = "app.gui_main:main"
+tandorbit-mac = "app.main:main"
 tandorbit-agent = "app.agent_main:main"
 
 [tool.ruff]
