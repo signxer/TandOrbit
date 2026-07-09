@@ -25,23 +25,63 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Run tests
         run: python -m pytest tests/ -v
 
-      - name: Package macOS release
+      - name: Create icon.icns
         run: |
-          mkdir -p dist/TandOrbit-macOS
-          cp -r app plugins config resources dist/TandOrbit-macOS/
-          cp icon.png requirements.txt start.command dist/TandOrbit-macOS/
-          chmod +x dist/TandOrbit-macOS/start.command
-          cd dist && zip -r TandOrbit-macOS.zip TandOrbit-macOS/
+          mkdir -p icon.iconset
+          sips -z 16 16 icon.png --out icon.iconset/icon_16x16.png
+          sips -z 32 32 icon.png --out icon.iconset/icon_16x16@2x.png
+          sips -z 32 32 icon.png --out icon.iconset/icon_32x32.png
+          sips -z 64 64 icon.png --out icon.iconset/icon_32x32@2x.png
+          sips -z 128 128 icon.png --out icon.iconset/icon_128x128.png
+          sips -z 256 256 icon.png --out icon.iconset/icon_128x128@2x.png
+          sips -z 256 256 icon.png --out icon.iconset/icon_256x256.png
+          sips -z 512 512 icon.png --out icon.iconset/icon_256x256@2x.png
+          sips -z 512 512 icon.png --out icon.iconset/icon_512x512.png
+          sips -z 1024 1024 icon.png --out icon.iconset/icon_512x512@2x.png
+          iconutil -c icns icon.iconset -o icon.icns
+          rm -rf icon.iconset
+
+      - name: Build macOS executable
+        run: pyinstaller -F -w --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --name=TandOrbit app/gui_main.py
+
+      - name: Create .app bundle
+        run: |
+          mkdir -p TandOrbit.app/Contents/MacOS
+          mkdir -p TandOrbit.app/Contents/Resources
+          cp dist/TandOrbit TandOrbit.app/Contents/MacOS/
+          cp icon.icns TandOrbit.app/Contents/Resources/
+          cp -r resources TandOrbit.app/Contents/Resources/
+          cat > TandOrbit.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>TandOrbit</string>
+          <key>CFBundleIconFile</key><string>icon.icns</string>
+          <key>CFBundleName</key><string>TandOrbit</string>
+          <key>CFBundleIdentifier</key><string>com.tandorbit.app</string>
+          <key>CFBundleVersion</key><string>1.0</string>
+          <key>NSHighResolutionCapable</key><true/>
+          <key>LSUIElement</key><true/>
+          </dict></plist>
+          EOF
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-dist
+          cp -r TandOrbit.app dmg-dist/
+          ln -sf /Applications dmg-dist/Applications
+          hdiutil create -volname TandOrbit -srcfolder dmg-dist -ov -format UDZO dist/TandOrbit-macOS.dmg
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: TandOrbit-macOS
-          path: dist/TandOrbit-macOS.zip
+          path: dist/TandOrbit-macOS.dmg
 
   build-windows:
     name: Build Windows
@@ -97,7 +137,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/mac/TandOrbit-macOS.zip
+            artifacts/mac/TandOrbit-macOS.dmg
             TandOrbit-Windows.zip
           generate_release_notes: true
           draft: false

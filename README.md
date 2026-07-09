@@ -189,10 +189,8 @@ TandOrbit/
 
 ### macOS 安装说明
 
-1. 下载 `TandOrbit-macOS.zip` 并解压
-2. 双击 `start.command` 启动（首次会自动安装 Python 依赖）
-
-需要已安装 Python 3.11+（macOS 通常自带）。
+1. 下载 `TandOrbit-macOS.dmg`，打开后将 TandOrbit 拖入 Applications
+2. 首次打开：右键点击 TandOrbit → 选择「打开」→ 弹窗中点击「打开」
 
 ### 从源码构建
 
