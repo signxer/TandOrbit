@@ -327,12 +327,11 @@ class SetAudioWindowsAction(Action):
 
 
 class LocalDisplayOffAction(Action):
-    """本地关闭所有非主显示器（Windows 端切到 Mac 模式时使用）"""
+    """本地关闭所有显示器（Windows 端切到 Mac 模式时使用）"""
 
-    def __init__(self, display_plugin: Any = None, primary_id: int = 1) -> None:
+    def __init__(self, display_plugin: Any = None) -> None:
         super().__init__("Local display off")
         self._display = display_plugin
-        self._primary_id = primary_id
 
     async def execute(self) -> bool:
         if not self._display:
@@ -341,9 +340,8 @@ class LocalDisplayOffAction(Action):
         try:
             displays = await self._display.list_displays()
             for d in displays:
-                if d.id != self._primary_id:
-                    logger.info(f"Disabling local display {d.id}: {d.name}")
-                    await self._display.disable_display(d.id)
+                logger.info(f"Disabling local display {d.id}: {d.name}")
+                await self._display.disable_display(d.id)
             return True
         except Exception as e:
             logger.warning(f"Local display off error: {e}")
