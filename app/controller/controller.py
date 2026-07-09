@@ -133,8 +133,8 @@ class Controller:
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
-                # Windows 端：唤醒显示器 + 停止 Deskflow
-                pipeline.add_action(LocalDisplayOnAction())
+                # Windows 端：启用所有显示器 + 停止 Deskflow
+                pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到共享模式 ===

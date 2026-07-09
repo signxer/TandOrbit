@@ -406,15 +406,24 @@ class LocalDisplayShareAction(Action):
 
 
 class LocalDisplayOnAction(Action):
-    """本地唤醒所有显示器（Windows 端切回 Windows 模式时使用）"""
+    """本地启用所有显示器（Windows 端切回 Windows 模式时使用）"""
 
-    def __init__(self) -> None:
+    def __init__(self, display_plugin: Any = None) -> None:
         super().__init__("Local display on")
+        self._display = display_plugin
 
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
         try:
+            # 先用 MultiMonitorTool 启用所有显示器
+            if self._display:
+                displays = await self._display.list_displays()
+                for d in displays:
+                    if not d.is_enabled:
+                        logger.info(f"Enabling display {d.id}: {d.name}")
+                        await self._display.enable_display(d.id)
+            # 再用 Windows API 唤醒
             import ctypes
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
             logger.info("All local displays on")
