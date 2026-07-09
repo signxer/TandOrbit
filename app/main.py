@@ -268,14 +268,86 @@ def main() -> None:
     def on_init_done() -> None:
         window.update_mode(state_manager.current_mode)
         tray.update_mode(state_manager.current_mode)
-        # Mac 本机已启动，标记为在线
         window.update_device_status(
             mac_online=True,
             win_online=False,
             deskflow_connected=False,
         )
+        # 定时 ping Windows 检测在线状态
+        from PySide6.QtCore import QTimer
+        import subprocess
+
+        def _check_win_online():
+            win_host = config_manager.config.windows.host
+            if not win_host:
+                return
+            try:
+                result = subprocess.run(
+                    ["ping", "-c", "1", "-W", "2", win_host],
+                    capture_output=True, timeout=3,
+                )
+                online = result.returncode == 0
+            except Exception:
+                online = False
+            cur_win = window._win_status._online
+            if online != cur_win:
+                window.update_device_status(
+                    mac_online=True,
+                    win_online=online,
+                    deskflow_connected=window._deskflow_status._online,
+                )
+
+        win_timer = QTimer()
+        win_timer.timeout.connect(_check_win_online)
+        win_timer.start(5000)
+        _check_win_online()
 
     worker.init_done.connect(on_init_done)
+
+    # 模式切换：检查 Windows 是否在线，离线时询问是否 WoL
+    def on_mode_switch(mode: Mode) -> None:
+        if mode == Mode.WINDOWS or mode == Mode.SHARE:
+            win_online = window._win_status._online
+            if not win_online:
+                reply = QMessageBox.question(
+                    window,
+                    "Windows 离线",
+                    "Windows 未开机或不在网络中，是否发送 WoL 唤醒？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.Yes,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    cfg = config_manager.config
+                    if cfg.windows.mac_address:
+                        worker.run_async(_wake_and_switch(mode))
+                    else:
+                        QMessageBox.warning(
+                            window, "缺少配置",
+                            "请先在设置中填写 Windows 的 MAC 地址。",
+                        )
+                    return
+        worker.run_async(controller.switch_mode(mode))
+
+    async def _wake_and_switch(mode: Mode):
+        """发送 WoL 后等待 Windows 上线再切换"""
+        cfg = config_manager.config
+        wol = plugin_registry.get("wol")
+        if wol:
+            await wol.wake(cfg.windows.mac_address)
+            logger.info(f"WoL sent to {cfg.windows.mac_address}")
+        # 等待 Windows 上线
+        import asyncio
+        for _ in range(30):  # 最多等 60 秒
+            if await controller.check_windows_agent():
+                logger.info("Windows is online, switching mode")
+                await controller.switch_mode(mode)
+                return
+            await asyncio.sleep(2)
+        logger.error("Windows did not come online after WoL")
+        from PySide6.QtWidgets import QApplication
+        QMessageBox.warning(None, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
+
+    window.mode_switch_requested.connect(on_mode_switch)
 
     logger.info("TandOrbit Mac client started")
     app.exec()
