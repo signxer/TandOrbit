@@ -51,13 +51,19 @@ class AsyncWorker(QThread):
         try:
             self._loop.run_until_complete(self._controller.initialize())
             self.init_report.emit(self._controller.init_results)
+            self._loop.run_forever()
         except Exception as e:
             logger.error(f"Initialization error: {e}")
 
     def run_async(self, coro):  # type: ignore
         """在工作线程中执行异步任务"""
-        if self._loop:
+        if self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(coro, self._loop)
+
+    def stop(self) -> None:
+        """停止事件循环"""
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
 
 
 def _resource_path(relative: str) -> Path:
@@ -211,6 +217,8 @@ def main() -> None:
 
     # 清理
     worker.run_async(controller.shutdown())
+    worker.wait(1000)
+    worker.stop()
     worker.wait(3000)
     logger.info("TandOrbit Mac client stopped")
 
