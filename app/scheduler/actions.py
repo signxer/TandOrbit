@@ -16,6 +16,24 @@ from loguru import logger
 from app.scheduler.action_pipeline import Action
 
 
+class DelayAction(Action):
+    """延迟执行（等待显示器切换信号源等）"""
+
+    def __init__(self, seconds: float = 2.0, reason: str = "") -> None:
+        super().__init__(f"Delay {seconds}s" + (f" ({reason})" if reason else ""))
+        self._seconds = seconds
+        self._reason = reason
+
+    async def execute(self) -> bool:
+        if self._reason:
+            logger.info(f"Waiting {self._seconds}s: {self._reason}")
+        await asyncio.sleep(self._seconds)
+        return True
+
+    async def rollback(self) -> bool:
+        return True
+
+
 class WakeWindowsAction(Action):
     """唤醒 Windows 并等待 Agent 上线"""
 

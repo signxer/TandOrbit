@@ -20,6 +20,7 @@ from app.scheduler.actions import (
     ConfigureDisplaysForMac,
     ConfigureDisplaysForShare,
     ConfigureDisplaysForWindows,
+    DelayAction,
     DisplaySleepAction,
     LocalDisplayOffAction,
     LocalDisplayOnAction,
@@ -105,6 +106,8 @@ class Controller:
                 pipeline.add_action(
                     ConfigureDisplaysForMac(mac_display_plugin=display, win_client=win_client)
                 )
+                # 等待显示器切换信号源
+                pipeline.add_action(DelayAction(2.0, "显示器切换信号源"))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
                 if audio:
                     pipeline.add_action(SetAudioMacAction(
@@ -112,7 +115,8 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # Windows 端：关所有显示器 + 停止 Deskflow
+                # Windows 端：等待 Mac 准备好，再关显示器
+                pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
                 pipeline.add_action(LocalDisplayOffAction())
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
