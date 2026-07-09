@@ -373,8 +373,8 @@ class SettingsDialog(QDialog):
             self._df_path.setText(cfg.tools.deskflow_path)
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
-        """设置 ComboBox 的值，如果不在列表中则插入"""
-        idx = combo.findText(value)
+        """设置 ComboBox 的值，按 data 匹配（data 是 ID 字符串）"""
+        idx = combo.findData(value)
         if idx >= 0:
             combo.setCurrentIndex(idx)
         else:
@@ -382,32 +382,41 @@ class SettingsDialog(QDialog):
 
     def _refresh_displays(self) -> None:
         """从插件刷新显示器列表"""
-        if not self._plugin_provider:
-            return
-        plugins = self._plugin_provider()
-        # macOS 用 betterdisplay，Windows 用 multimonitortool
-        display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
-        if not display_plugin:
-            return
-        try:
-            displays = display_plugin.list_displays()
-            # list_displays 是异步的，需要在同步上下文中处理
-            import asyncio
-            if asyncio.iscoroutine(displays):
-                loop = asyncio.new_event_loop()
-                displays = loop.run_until_complete(displays)
-                loop.close()
-        except Exception:
-            displays = []
+        cfg = self._config_manager.config
+        displays = []
+
+        if self._plugin_provider:
+            plugins = self._plugin_provider()
+            display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
+            if display_plugin:
+                try:
+                    result = display_plugin.list_displays()
+                    import asyncio
+                    if asyncio.iscoroutine(result):
+                        loop = asyncio.new_event_loop()
+                        result = loop.run_until_complete(result)
+                        loop.close()
+                    displays = result or []
+                except Exception:
+                    displays = []
 
         self._primary_id.clear()
         self._secondary_id.clear()
         self._share_display.clear()
-        for d in displays:
-            label = f"{d.id} - {d.name}"
-            self._primary_id.addItem(label, str(d.id))
-            self._secondary_id.addItem(label, str(d.id))
-            self._share_display.addItem(label, str(d.id))
+
+        if displays:
+            for d in displays:
+                label = f"{d.id} - {d.name}"
+                self._primary_id.addItem(label, str(d.id))
+                self._secondary_id.addItem(label, str(d.id))
+                self._share_display.addItem(label, str(d.id))
+        else:
+            # 插件不可用时，用配置里的 ID 作为占位项
+            for did in (cfg.display.primary_id, cfg.display.secondary_id, cfg.display.share_display_id):
+                label = f"Display {did}"
+                self._primary_id.addItem(label, str(did))
+                self._secondary_id.addItem(label, str(did))
+                self._share_display.addItem(label, str(did))
 
     def _refresh_audio(self) -> None:
         """从插件刷新音频设备列表"""
