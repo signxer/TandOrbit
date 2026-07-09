@@ -1,9 +1,9 @@
-"""修复 PyInstaller macOS bundle 结构，使其能通过 codesign。
+"""修复 PyInstaller macOS bundle 结构。
 
 PyInstaller 把所有文件（代码 + 数据）都放在 Contents/Frameworks/ 下，
 但 macOS 代码签名要求 Frameworks/ 只包含可签名的代码文件。
 
-此脚本将非代码文件从 Frameworks/ 移到 Resources/，并更新内部引用路径。
+此脚本将非代码文件从 Frameworks/ 移到 Resources/。
 """
 
 import os
@@ -11,34 +11,20 @@ import shutil
 import sys
 from pathlib import Path
 
-
 # 可签名的文件扩展名
 SIGNABLE_EXTS = {'.dylib', '.so', '.pyd', ''}
-
-# 需要移到 Resources 的目录（PySide6 翻译等）
-MOVE_DIRS = ['translations']
-
-# 需要移到 Resources 的文件扩展名
-MOVE_EXTS = {
-    '.qm', '.qml', '.json', '.conf', '.png', '.svg', '.ico', '.icns',
-    '.jpg', '.gif', '.bmp', '.txt', '.md', '.yaml', '.yml', '.toml',
-    '.cfg', '.ini', '.xml', '.html', '.css', '.js', '.zip', '.dat',
-    '.py', '.pyi', '.typed',
-}
 
 
 def is_signable(path: Path) -> bool:
     """判断文件是否可签名（是代码文件）"""
     if path.is_dir():
-        return True  # 目录本身可签名
+        return True
     if path.suffix in SIGNABLE_EXTS:
         return True
-    # 某些无扩展名的文件是 Mach-O
     if not path.suffix and path.is_file():
         try:
             with open(path, 'rb') as f:
                 magic = f.read(4)
-            # Mach-O magic numbers
             if magic in (b'\xfe\xed\xfa\xce', b'\xfe\xed\xfa\xcf',
                          b'\xce\xfa\xed\xfe', b'\xcf\xfa\xed\xfe',
                          b'\xca\xfe\xba\xbe'):
@@ -59,12 +45,16 @@ def fix_bundle(app_path: Path) -> None:
 
     moved_count = 0
 
-    # 遍历 Frameworks 下的所有文件
-    for root, dirs, files in os.walk(frameworks):
+    # 遍历 Frameworks 下的所有文件（不跟随符号链接）
+    for root, dirs, files in os.walk(frameworks, followlinks=False):
         root_path = Path(root)
 
         for fname in files:
             fpath = root_path / fname
+
+            # 跳过符号链接
+            if fpath.is_symlink():
+                continue
 
             # 跳过可签名文件
             if is_signable(fpath):
@@ -78,10 +68,8 @@ def fix_bundle(app_path: Path) -> None:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
             try:
-                # 如果 Resources 里已有同名符号链接，先删除（避免自引用循环）
-                if dest.is_symlink():
-                    dest.unlink()
-                elif dest.exists():
+                # 如果目标已有同名文件或符号链接，先删除
+                if dest.is_symlink() or dest.exists():
                     dest.unlink()
                 shutil.move(str(fpath), str(dest))
                 moved_count += 1
@@ -99,26 +87,30 @@ def fix_bundle(app_path: Path) -> None:
         except OSError:
             pass
 
-    # 清理 Resources 中的自引用/循环符号链接（PyInstaller BUNDLE 创建的）
-    removed_symlinks = 0
-    for root, dirs, files in os.walk(resources):
+    # 清理 Resources 中指向不存在目标的符号链接
+    removed = 0
+    for root, dirs, files in os.walk(resources, followlinks=False):
         root_path = Path(root)
         for fname in files:
             fpath = root_path / fname
             if not fpath.is_symlink():
                 continue
             try:
-                target = fpath.resolve()
-                if not target.exists():
+                target = fpath.readlink()
+                target_abs = (fpath.parent / target).resolve()
+                if not target_abs.exists():
                     fpath.unlink()
-                    removed_symlinks += 1
+                    removed += 1
             except OSError:
-                # 循环链接会导致 resolve() 抛出 OSError (ELOOP)
-                fpath.unlink()
-                removed_symlinks += 1
+                # 循环链接或解析失败，直接删除
+                try:
+                    fpath.unlink()
+                    removed += 1
+                except OSError:
+                    pass
 
     print(f"Moved {moved_count} non-code files from Frameworks to Resources")
-    print(f"Removed {removed_symlinks} self-referencing symlinks from Resources")
+    print(f"Removed {removed} broken symlinks from Resources")
 
 
 if __name__ == '__main__':
