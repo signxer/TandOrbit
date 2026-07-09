@@ -10,9 +10,10 @@ import asyncio
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, Signal, QObject
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
@@ -26,6 +27,11 @@ from app.gui.tray import TrayIcon
 from app.plugin_base import PluginRegistry
 from app.scheduler.scheduler import Scheduler
 from app.state.state_machine import StateManager
+
+
+class DiscoverySignals(QObject):
+    """发现服务的 Qt 信号（用于线程安全的 UI 更新）"""
+    peer_discovered = Signal(dict)
 
 
 class AsyncWorker(QThread):
@@ -210,27 +216,6 @@ def _main() -> None:
     from app.communication.discovery import DiscoveryService
     local_port = config.mac.port if is_mac else config.windows.port
     discovery = DiscoveryService(local_port=local_port)
-    discovery.start()
-
-    def _on_peer_found(peer):
-        """发现对端后自动更新配置和状态"""
-        if peer["role"] == "mac":
-            # Windows 端发现 Mac
-            mac_host = peer["host"]
-            cfg = config_manager.config
-            if cfg.deskflow.server_host != mac_host:
-                config_manager.update({"deskflow": {"server_host": mac_host}})
-                logger.info(f"Auto-discovered Mac at {mac_host}, config updated")
-        elif peer["role"] == "windows":
-            # Mac 端发现 Windows，更新状态灯
-            logger.info(f"Windows discovered at {peer['host']}, updating status")
-            window.update_device_status(
-                mac_online=True,
-                win_online=True,
-                deskflow_connected=False,
-            )
-
-    discovery.on_peer_discovered(_on_peer_found)
 
     # --- 创建 Qt 应用 ---
     app = QApplication(sys.argv)
@@ -263,29 +248,85 @@ def _main() -> None:
     worker = AsyncWorker(controller)
     worker.start()
 
+    # --- 启动发现服务（window 创建后） ---
+    discovery_signals = DiscoverySignals()
+
+    def _on_peer_discovered(peer):
+        """发现对端后在主线程更新 UI"""
+        if peer["role"] == "mac":
+            # Windows 端发现 Mac
+            mac_host = peer["host"]
+            cfg = config_manager.config
+            if cfg.deskflow.server_host != mac_host:
+                config_manager.update({"deskflow": {"server_host": mac_host}})
+                logger.info(f"Auto-discovered Mac at {mac_host}, config updated")
+        elif peer["role"] == "windows":
+            # Mac 端发现 Windows，更新状态灯
+            logger.info(f"Windows discovered at {peer['host']}, updating status")
+            window.update_device_status(
+                mac_online=True,
+                win_online=True,
+                deskflow_connected=False,
+            )
+
+    discovery_signals.peer_discovered.connect(_on_peer_discovered)
+
+    def _on_peer_found(peer):
+        """发现对端（后台线程）→ 通过信号转发到主线程"""
+        discovery_signals.peer_discovered.emit(peer)
+
+    discovery.on_peer_discovered(_on_peer_found)
+    discovery.start()
+
     # --- 连接信号 ---
     def on_mode_switch(mode: Mode) -> None:
-        if mode == Mode.MAC:
-            mac_online = window._mac_status._online
-            if not mac_online:
-                cfg = config_manager.config
-                if cfg.mac.mac_address:
-                    reply = QMessageBox.question(
-                        window,
-                        "Mac 离线",
-                        "Mac 未响应，是否发送 WoL 唤醒？",
-                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.Yes,
-                    )
-                    if reply == QMessageBox.StandardButton.Yes:
-                        worker.run_async(_wake_mac_and_switch(mode))
-                    return
-                else:
-                    QMessageBox.warning(
-                        window, "缺少配置",
-                        "请先在设置中填写 Mac 的 MAC 地址。",
-                    )
-                    return
+        # 检查目标机器是否在线
+        if is_mac:
+            # Mac 端：切换到 Windows 时检查 Windows 是否在线
+            if mode == Mode.WINDOWS:
+                win_online = window._win_status._online
+                if not win_online:
+                    cfg = config_manager.config
+                    if cfg.windows.mac_address:
+                        reply = QMessageBox.question(
+                            window,
+                            "Windows 离线",
+                            "Windows 未响应，是否发送 WoL 唤醒？",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.Yes,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            worker.run_async(_wake_windows_and_switch(mode))
+                        return
+                    else:
+                        QMessageBox.warning(
+                            window, "缺少配置",
+                            "请先在设置中填写 Windows 的 MAC 地址。",
+                        )
+                        return
+        else:
+            # Windows 端：切换到 Mac 时检查 Mac 是否在线
+            if mode == Mode.MAC:
+                mac_online = window._mac_status._online
+                if not mac_online:
+                    cfg = config_manager.config
+                    if cfg.mac.mac_address:
+                        reply = QMessageBox.question(
+                            window,
+                            "Mac 离线",
+                            "Mac 未响应，是否发送 WoL 唤醒？",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.Yes,
+                        )
+                        if reply == QMessageBox.StandardButton.Yes:
+                            worker.run_async(_wake_mac_and_switch(mode))
+                        return
+                    else:
+                        QMessageBox.warning(
+                            window, "缺少配置",
+                            "请先在设置中填写 Mac 的 MAC 地址。",
+                        )
+                        return
         worker.run_async(controller.switch_mode(mode))
 
     async def _wake_mac_and_switch(mode: Mode):
@@ -310,6 +351,29 @@ def _main() -> None:
             await asyncio.sleep(2)
         logger.error("Mac did not come online after WoL")
         QMessageBox.warning(None, "唤醒超时", "Mac 未在 60 秒内上线，请检查网络。")
+
+    async def _wake_windows_and_switch(mode: Mode):
+        """发送 WoL 唤醒 Windows 后切换模式"""
+        cfg = config_manager.config
+        wol = plugin_registry.get("wol")
+        if wol:
+            await wol.wake(cfg.windows.mac_address)
+            logger.info(f"WoL sent to Windows at {cfg.windows.mac_address}")
+        # 等待 Windows 上线
+        import asyncio
+        import socket
+        for _ in range(30):
+            try:
+                s = socket.create_connection((cfg.windows.host, cfg.windows.port), timeout=2)
+                s.close()
+                logger.info("Windows is online, switching mode")
+                await controller.switch_mode(mode)
+                return
+            except OSError:
+                pass
+            await asyncio.sleep(2)
+        logger.error("Windows did not come online after WoL")
+        QMessageBox.warning(None, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
 
     def on_mode_changed(event: ModeChangedEvent) -> None:
         mode = Mode[event.new_mode] if event.new_mode in Mode.__members__ else Mode.UNKNOWN
