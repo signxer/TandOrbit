@@ -167,9 +167,9 @@ class BetterDisplayPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                logger.error(f"CLI error: {stderr.decode().strip()}")
+                logger.error(f"CLI error: {stderr.decode(errors='replace').strip()}")
                 return None
-            return stdout.decode().strip()
+            return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
             logger.error(f"CLI timeout: {cmd}")
             return None

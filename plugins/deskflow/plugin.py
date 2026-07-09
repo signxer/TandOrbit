@@ -39,22 +39,32 @@ class DeskflowPlugin(Plugin):
 
     async def initialize(self) -> bool:
         system = platform.system()
-        if system == "Darwin" and not Path("/Applications/Deskflow.app").exists():
-            self._init_error = (
-                "Deskflow 未安装。"
-                "请从 https://github.com/deskflow/deskflow/releases 下载安装。"
-            )
-            logger.warning(self._init_error)
-            self._set_status(PluginStatus.ERROR)
-            return False
-        elif system == "Windows" and not shutil.which("Deskflow.exe"):
-            self._init_error = (
-                "Deskflow 未安装。"
-                "请从 https://github.com/deskflow/deskflow/releases 下载安装。"
-            )
-            logger.warning(self._init_error)
-            self._set_status(PluginStatus.ERROR)
-            return False
+        if system == "Darwin":
+            cli_path = self.config.get("deskflow_path", "")
+            if cli_path:
+                self._exe_path = cli_path
+            elif Path("/Applications/Deskflow.app").exists():
+                self._exe_path = "Deskflow"
+            else:
+                self._init_error = (
+                    "Deskflow 未安装。"
+                    "请从 https://github.com/deskflow/deskflow/releases 下载安装。"
+                )
+                logger.warning(self._init_error)
+                self._set_status(PluginStatus.ERROR)
+                return False
+        elif system == "Windows":
+            cli_path = self.config.get("deskflow_path", "deskflow.exe")
+            if shutil.which(cli_path) or Path(cli_path).exists():
+                self._exe_path = cli_path
+            else:
+                self._init_error = (
+                    "Deskflow 未安装。"
+                    "请从 https://github.com/deskflow/deskflow/releases 下载安装。"
+                )
+                logger.warning(self._init_error)
+                self._set_status(PluginStatus.ERROR)
+                return False
 
         self._set_status(PluginStatus.INITIALIZED)
         logger.info("Deskflow plugin initialized")
@@ -168,16 +178,17 @@ class DeskflowPlugin(Plugin):
     def _get_start_command(self) -> str:
         """获取启动命令"""
         system = platform.system()
+        exe = getattr(self, "_exe_path", "deskflow.exe")
         if system == "Darwin":
             if self._is_server:
-                return "open -a Deskflow"
+                return f'open -a "{exe}"'
             else:
-                return f"open -a Deskflow --args --client {self._server_host}"
+                return f'open -a "{exe}" --args --client {self._server_host}'
         elif system == "Windows":
             if self._is_server:
-                return "start Deskflow.exe"
+                return f'start "" "{exe}"'
             else:
-                return f"start Deskflow.exe --client {self._server_host}"
+                return f'start "" "{exe}" --client {self._server_host}'
         return "deskflow"
 
     def _get_stop_command(self) -> str:
@@ -192,12 +203,14 @@ class DeskflowPlugin(Plugin):
     async def _is_running(self) -> bool:
         """检查 Deskflow 是否在运行"""
         system = platform.system()
+        exe = getattr(self, "_exe_path", "deskflow.exe")
+        exe_name = Path(exe).name
         if system == "Darwin":
-            cmd = 'pgrep -f "Deskflow"'
+            cmd = f'pgrep -f "{exe_name}"'
         elif system == "Windows":
-            cmd = 'tasklist /FI "IMAGENAME eq Deskflow.exe" /NH'
+            cmd = f'tasklist /FI "IMAGENAME eq {exe_name}" /NH'
         else:
-            cmd = "pgrep -f deskflow"
+            cmd = f"pgrep -f {exe_name}"
 
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -206,6 +219,6 @@ class DeskflowPlugin(Plugin):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            return bool(stdout.decode().strip())
+            return bool(stdout.decode(errors="replace").strip())
         except Exception:
             return False

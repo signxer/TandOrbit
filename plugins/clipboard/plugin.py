@@ -185,7 +185,7 @@ class ClipboardPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             if proc.returncode != 0:
-                logger.error(f"PowerShell error: {stderr.decode().strip()}")
+                logger.error(f"PowerShell error: {stderr.decode(errors='replace').strip()}")
                 return None
             return stdout.decode("utf-8", errors="replace").strip()
         except Exception as e:

@@ -26,7 +26,7 @@ class MultiMonitorToolPlugin(Plugin):
 
     def __init__(self, event_bus: EventBus, config: dict[str, Any] | None = None) -> None:
         super().__init__("multimonitortool", event_bus, config)
-        self._tool_path = self.config.get("path", "MultiMonitorTool.exe")
+        self._tool_path = self.config.get("multimonitortool_path", "MultiMonitorTool.exe")
 
     async def initialize(self) -> bool:
         """初始化：检查 MultiMonitorTool 是否可用"""
@@ -135,8 +135,20 @@ class MultiMonitorToolPlugin(Plugin):
     # --- 内部方法 ---
 
     async def _run_tool(self, args: str) -> str | None:
-        """执行 MultiMonitorTool 命令"""
-        cmd = f'"{self._tool_path}" {args}'
+        """执行 MultiMonitorTool 命令（通过 PowerShell 包装，避免 GUI 程序阻塞）"""
+        import os
+        import tempfile
+
+        # 读取类命令（/scomma, /sxml 等）需要输出文件；操作类命令（/enable, /disable 等）不需要
+        is_read = args.strip().lower().startswith("/s")
+        if is_read:
+            output_file = os.path.join(tempfile.gettempdir(), "tandorbit_mmt_out.csv")
+            mmt_args = f"{args} '{output_file}'"
+        else:
+            output_file = None
+            mmt_args = args
+
+        cmd = f"powershell -NoProfile -Command \"& '{self._tool_path}' {mmt_args}\""
         logger.debug(f"Running: {cmd}")
         try:
             proc = await asyncio.create_subprocess_shell(
@@ -146,9 +158,14 @@ class MultiMonitorToolPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                logger.error(f"Tool error: {stderr.decode().strip()}")
+                logger.error(f"Tool error: {stderr.decode(errors='replace').strip()}")
                 return None
-            return stdout.decode().strip()
+            if output_file and os.path.exists(output_file):
+                with open(output_file, "r", encoding="utf-8", errors="replace") as f:
+                    result = f.read().strip()
+                os.remove(output_file)
+                return result
+            return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
             logger.error(f"Tool timeout: {cmd}")
             return None
@@ -168,9 +185,9 @@ class MultiMonitorToolPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                logger.error(f"PowerShell error: {stderr.decode().strip()}")
+                logger.error(f"PowerShell error: {stderr.decode(errors="replace").strip()}")
                 return None
-            return stdout.decode().strip()
+            return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
             logger.error(f"PowerShell timeout")
             return None

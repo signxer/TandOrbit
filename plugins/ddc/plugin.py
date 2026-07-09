@@ -180,7 +180,7 @@ class DDCPlugin(Plugin):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             if proc.returncode == 0:
-                return int(stdout.decode().strip())
+                return int(stdout.decode(errors="replace").strip())
         except Exception as e:
             logger.error(f"m1ddc read error: {e}")
         return None
@@ -217,7 +217,7 @@ class DDCPlugin(Plugin):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
             if proc.returncode == 0:
-                return int(stdout.decode().strip())
+                return int(stdout.decode(errors="replace").strip())
         except Exception as e:
             logger.error(f"ControlMyMonitor read error: {e}")
         return None

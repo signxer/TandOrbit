@@ -29,6 +29,60 @@ from app.enums import Mode
 _FONT = ".AppleSystemUIFont" if platform.system() == "Darwin" else "Segoe UI"
 
 
+def _detect_dark_mode() -> bool:
+    """检测系统是否为深色模式"""
+    try:
+        if platform.system() == "Windows":
+            import winreg
+
+            key = winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            )
+            value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            winreg.CloseKey(key)
+            return value == 0
+        elif platform.system() == "Darwin":
+            import subprocess
+
+            result = subprocess.run(
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True, text=True, timeout=3,
+            )
+            return result.stdout.strip().lower() == "dark"
+    except Exception:
+        pass
+    return False
+
+
+# 配色方案
+_LIGHT = {
+    "bg": "#FFFFFF",
+    "border": "#D0D0D0",
+    "hover": "#F5F5F5",
+    "checked_bg": "#E8F0FE",
+    "checked_border": "#4A90D9",
+    "text": "#333333",
+    "text_secondary": "#666666",
+    "settings_hover": "#F0F0F0",
+    "window_bg": "#FFFFFF",
+}
+
+_DARK = {
+    "bg": "#2B2B2B",
+    "border": "#555555",
+    "hover": "#3A3A3A",
+    "checked_bg": "#1A3A5C",
+    "checked_border": "#4A90D9",
+    "text": "#E0E0E0",
+    "text_secondary": "#AAAAAA",
+    "settings_hover": "#3A3A3A",
+    "window_bg": "#1E1E1E",
+}
+
+_COLORS = _DARK if _detect_dark_mode() else _LIGHT
+
+
 def _resource_path(relative: str) -> Path:
     """获取资源文件路径（兼容 PyInstaller 打包和开发模式）"""
     if hasattr(sys, "_MEIPASS"):
@@ -57,32 +111,32 @@ class StatusIndicator(QLabel):
 
     def update_status(self, online: bool) -> None:
         self._online = online
-        color = "#4CAF50" if online else "#9E9E9E"
-        self.setText(f'<span style="color:{color};">●</span> {self._text}')
+        dot = "#4CAF50" if online else "#9E9E9E"
+        self.setText(
+            f'<span style="color:{dot};">●</span> '
+            f'<span style="color:{_COLORS["text"]};">{self._text}</span>'
+        )
 
 
 class ModeButton(QPushButton):
     """模式切换按钮（图标 + 文字的方块按钮）"""
 
-    _BASE_STYLE = """
+    _STYLE = """
         ModeButton {{
             border: 2px solid {border};
             border-radius: 10px;
             background: {bg};
             padding: 12px 4px;
+            color: {text};
         }}
         ModeButton:hover {{
             background: {hover};
         }}
         ModeButton:checked {{
-            border-color: #4A90D9;
-            background: #E8F0FE;
+            border-color: {checked_border};
+            background: {checked_bg};
         }}
-    """
-    _UNCHECKED = _BASE_STYLE.format(
-        border="#D0D0D0", bg="#FFFFFF", hover="#F5F5F5",
-    )
-    _CHECKED = _BASE_STYLE  # :checked 伪状态由 Qt 内联处理
+    """.format(**_COLORS)
 
     def __init__(
         self,
@@ -97,7 +151,7 @@ class ModeButton(QPushButton):
         self.setCheckable(True)
         self.setFixedSize(88, 80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet(self._UNCHECKED)
+        self.setStyleSheet(self._STYLE)
 
         # 内部布局：图标居上，文字居下
         inner = QVBoxLayout(self)
@@ -124,16 +178,16 @@ class MainWindow(QMainWindow):
     sleep_display_requested = Signal()
     settings_requested = Signal()
 
-    _SETTINGS_STYLE = """
-        QPushButton {
+    _SETTINGS_STYLE = f"""
+        QPushButton {{
             border: none;
             background: transparent;
             padding: 4px;
             border-radius: 6px;
-        }
-        QPushButton:hover {
-            background: #F0F0F0;
-        }
+        }}
+        QPushButton:hover {{
+            background: {_COLORS['settings_hover']};
+        }}
     """
 
     def __init__(self, base_dir: Path | None = None, hotkeys: dict[str, str] | None = None) -> None:
@@ -146,6 +200,7 @@ class MainWindow(QMainWindow):
         }
         self.setWindowTitle("TandOrbit")
         self.setFixedSize(320, 320)
+        self.setStyleSheet(f"background-color: {_COLORS['window_bg']};")
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -176,6 +231,7 @@ class MainWindow(QMainWindow):
         title = QLabel("TandOrbit")
         title.setFont(QFont(_FONT, 16, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"color: {_COLORS['text']};")
         layout.addWidget(title)
 
         layout.addSpacing(12)
@@ -219,7 +275,7 @@ class MainWindow(QMainWindow):
             lbl = QLabel(self._hotkeys.get(key, ""))
             lbl.setFont(QFont(_FONT, 10))
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet("color: #666;")
+            lbl.setStyleSheet(f"color: {_COLORS['text_secondary']};")
             self._hk_labels.append(lbl)
             hk_row.addWidget(lbl)
         layout.addLayout(hk_row)

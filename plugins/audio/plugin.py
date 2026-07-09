@@ -86,7 +86,7 @@ class AudioPlugin(Plugin):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            devices = stdout.decode().strip().split("\n")
+            devices = stdout.decode(errors="replace").strip().split("\n")
             return [d.strip() for d in devices if d.strip()]
         except Exception as e:
             logger.error(f"Failed to list macOS audio devices: {e}")
@@ -101,7 +101,7 @@ class AudioPlugin(Plugin):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
-            return stdout.decode().strip()
+            return stdout.decode(errors="replace").strip()
         except Exception:
             return ""
 
@@ -170,9 +170,9 @@ class AudioPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
             if proc.returncode != 0:
-                logger.error(f"PowerShell error: {stderr.decode().strip()}")
+                logger.error(f"PowerShell error: {stderr.decode(errors='replace').strip()}")
                 return None
-            return stdout.decode().strip()
+            return stdout.decode(errors="replace").strip()
         except Exception as e:
             logger.error(f"PowerShell exception: {e}")
             return None

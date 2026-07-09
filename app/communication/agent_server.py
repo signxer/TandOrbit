@@ -91,7 +91,7 @@ class AgentServer:
         if self._display_plugin:
             try:
                 display_list = await self._display_plugin.list_displays()
-                displays = [d.model_dump() for d in display_list]
+                displays = [d.model_dump(mode="json") for d in display_list]
             except Exception:
                 pass
 
@@ -111,7 +111,7 @@ class AgentServer:
             deskflow_running=deskflow_running,
             deskflow_connected=deskflow_connected,
         )
-        return JSONResponse(status.model_dump())
+        return JSONResponse(status.model_dump(mode="json"))
 
     async def _get_status(self, request: Request) -> JSONResponse:
         """获取状态"""
@@ -121,19 +121,19 @@ class AgentServer:
         """列出显示器"""
         if not self._display_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Display plugin not available").model_dump(),
+                AgentResponse(success=False, error="Display plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             displays = await self._display_plugin.list_displays()
             return JSONResponse(
                 AgentResponse(
-                    success=True, data={"displays": [d.model_dump() for d in displays]}
-                ).model_dump()
+                    success=True, data={"displays": [d.model_dump(mode="json") for d in displays]}
+                ).model_dump(mode="json")
             )
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -141,17 +141,17 @@ class AgentServer:
         """启用显示器"""
         if not self._display_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Display plugin not available").model_dump(),
+                AgentResponse(success=False, error="Display plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             body = await request.json()
             display_id = body.get("display_id", 1)
             ok = await self._display_plugin.enable_display(display_id)
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -159,17 +159,17 @@ class AgentServer:
         """禁用显示器"""
         if not self._display_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Display plugin not available").model_dump(),
+                AgentResponse(success=False, error="Display plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             body = await request.json()
             display_id = body.get("display_id", 2)
             ok = await self._display_plugin.disable_display(display_id)
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -177,7 +177,7 @@ class AgentServer:
         """设置复制模式"""
         if not self._display_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Display plugin not available").model_dump(),
+                AgentResponse(success=False, error="Display plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
@@ -185,10 +185,10 @@ class AgentServer:
             source_id = body.get("source_id", 1)
             target_id = body.get("target_id", 2)
             ok = await self._display_plugin.set_duplicate(source_id, target_id)
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -196,15 +196,15 @@ class AgentServer:
         """设置扩展模式"""
         if not self._display_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Display plugin not available").model_dump(),
+                AgentResponse(success=False, error="Display plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             ok = await self._display_plugin.set_extend()
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -212,15 +212,15 @@ class AgentServer:
         """启动 Deskflow"""
         if not self._deskflow_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(),
+                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             ok = await self._deskflow_plugin.start()
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -228,15 +228,15 @@ class AgentServer:
         """停止 Deskflow"""
         if not self._deskflow_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(),
+                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             ok = await self._deskflow_plugin.stop()
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -244,15 +244,15 @@ class AgentServer:
         """重启 Deskflow"""
         if not self._deskflow_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(),
+                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             ok = await self._deskflow_plugin.restart()
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -260,7 +260,7 @@ class AgentServer:
         """获取 Deskflow 状态"""
         if not self._deskflow_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(),
+                AgentResponse(success=False, error="Deskflow plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
@@ -270,11 +270,11 @@ class AgentServer:
                 AgentResponse(
                     success=True,
                     data={"running": running, "connected": connected},
-                ).model_dump()
+                ).model_dump(mode="json")
             )
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -282,17 +282,17 @@ class AgentServer:
         """列出音频设备"""
         if not self._audio_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Audio plugin not available").model_dump(),
+                AgentResponse(success=False, error="Audio plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             devices = await self._audio_plugin.list_devices()
             return JSONResponse(
-                AgentResponse(success=True, data={"devices": devices}).model_dump()
+                AgentResponse(success=True, data={"devices": devices}).model_dump(mode="json")
             )
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -300,17 +300,17 @@ class AgentServer:
         """设置音频设备"""
         if not self._audio_plugin:
             return JSONResponse(
-                AgentResponse(success=False, error="Audio plugin not available").model_dump(),
+                AgentResponse(success=False, error="Audio plugin not available").model_dump(mode="json"),
                 status_code=503,
             )
         try:
             body = await request.json()
             device_name = body.get("device", "")
             ok = await self._audio_plugin.set_device(device_name)
-            return JSONResponse(AgentResponse(success=ok).model_dump())
+            return JSONResponse(AgentResponse(success=ok).model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -322,10 +322,10 @@ class AgentServer:
                 ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
                 shell=True,
             )
-            return JSONResponse(AgentResponse(success=True, message="Sleep command sent").model_dump())
+            return JSONResponse(AgentResponse(success=True, message="Sleep command sent").model_dump(mode="json"))
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
 
@@ -335,10 +335,10 @@ class AgentServer:
         try:
             subprocess.Popen(["shutdown", "/s", "/t", "5"], shell=True)
             return JSONResponse(
-                AgentResponse(success=True, message="Shutdown command sent").model_dump()
+                AgentResponse(success=True, message="Shutdown command sent").model_dump(mode="json")
             )
         except Exception as e:
             return JSONResponse(
-                AgentResponse(success=False, error=str(e)).model_dump(),
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )

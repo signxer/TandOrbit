@@ -144,6 +144,8 @@ class SettingsDialog(QDialog):
         tabs.addTab(self._create_deskflow_tab(), "Deskflow")
         tabs.addTab(self._create_audio_tab(), "音频")
         tabs.addTab(self._create_hotkeys_tab(), "快捷键")
+        if platform.system() != "Darwin":
+            tabs.addTab(self._create_tools_tab(), "工具")
         layout.addWidget(tabs)
 
         # 按钮
@@ -258,6 +260,62 @@ class SettingsDialog(QDialog):
         layout.addRow(group)
         return widget
 
+    def _create_tools_tab(self) -> QWidget:
+        """外部工具路径配置标签页"""
+        widget = QWidget()
+        layout = QFormLayout(widget)
+
+        group = QGroupBox("外部工具路径")
+        form = QFormLayout(group)
+
+        # MultiMonitorTool
+        self._mmt_path = QLineEdit()
+        mmt_btn = QPushButton("浏览...")
+        mmt_btn.setFixedWidth(70)
+        mmt_btn.clicked.connect(lambda: self._browse_file(self._mmt_path))
+        mmt_row = QHBoxLayout()
+        mmt_row.addWidget(self._mmt_path)
+        mmt_row.addWidget(mmt_btn)
+        form.addRow("MultiMonitorTool:", mmt_row)
+
+        # ControlMyMonitor
+        self._cmm_path = QLineEdit()
+        cmm_btn = QPushButton("浏览...")
+        cmm_btn.setFixedWidth(70)
+        cmm_btn.clicked.connect(lambda: self._browse_file(self._cmm_path))
+        cmm_row = QHBoxLayout()
+        cmm_row.addWidget(self._cmm_path)
+        cmm_row.addWidget(cmm_btn)
+        form.addRow("ControlMyMonitor:", cmm_row)
+
+        # Deskflow
+        self._df_path = QLineEdit()
+        df_btn = QPushButton("浏览...")
+        df_btn.setFixedWidth(70)
+        df_btn.clicked.connect(lambda: self._browse_file(self._df_path))
+        df_row = QHBoxLayout()
+        df_row.addWidget(self._df_path)
+        df_row.addWidget(df_btn)
+        form.addRow("Deskflow:", df_row)
+
+        hint = QLabel("填写完整路径或确保工具所在目录已加入 PATH 环境变量")
+        hint.setStyleSheet("color: #888; font-size: 11px;")
+        hint.setWordWrap(True)
+        form.addRow("", hint)
+
+        layout.addRow(group)
+        return widget
+
+    def _browse_file(self, target: QLineEdit) -> None:
+        """打开文件选择对话框"""
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择可执行文件", "", "可执行文件 (*.exe);;所有文件 (*)"
+        )
+        if path:
+            target.setText(path)
+
     def _create_hotkeys_tab(self) -> QWidget:
         """快捷键配置标签页"""
         widget = QWidget()
@@ -304,6 +362,12 @@ class SettingsDialog(QDialog):
         self._hk_mac.setText(cfg.hotkeys.get("switch_mac", f"{default_mod}+1"))
         self._hk_win.setText(cfg.hotkeys.get("switch_windows", f"{default_mod}+2"))
         self._hk_share.setText(cfg.hotkeys.get("switch_share", f"{default_mod}+3"))
+
+        # 工具路径（仅 Windows）
+        if platform.system() != "Darwin":
+            self._mmt_path.setText(cfg.tools.multimonitortool_path)
+            self._cmm_path.setText(cfg.tools.controlmymonitor_path)
+            self._df_path.setText(cfg.tools.deskflow_path)
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         """设置 ComboBox 的值，如果不在列表中则插入"""
@@ -400,5 +464,12 @@ class SettingsDialog(QDialog):
                 "switch_share": self._hk_share.text(),
             },
         }
+
+        if platform.system() != "Darwin":
+            updates["tools"] = {
+                "multimonitortool_path": self._mmt_path.text(),
+                "controlmymonitor_path": self._cmm_path.text(),
+                "deskflow_path": self._df_path.text(),
+            }
         self._config_manager.update(updates)
         self.accept()

@@ -97,8 +97,9 @@ def _start_agent_server(config) -> None:
     from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
 
     event_bus = EventBus()
-    display_plugin = MultiMonitorToolPlugin(event_bus)
-    deskflow_plugin = DeskflowPlugin(event_bus, config.deskflow.model_dump())
+    display_plugin = MultiMonitorToolPlugin(event_bus, config.tools.model_dump())
+    deskflow_cfg = {**config.deskflow.model_dump(), **config.tools.model_dump()}
+    deskflow_plugin = DeskflowPlugin(event_bus, deskflow_cfg)
     audio_plugin = AudioPlugin(event_bus, config.audio.model_dump())
 
     server = AgentServer(host="0.0.0.0", port=config.windows.port)
@@ -184,10 +185,11 @@ def _main() -> None:
         from plugins.deskflow.plugin import DeskflowPlugin
         from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
 
-        plugin_registry.register(MultiMonitorToolPlugin(event_bus))
-        plugin_registry.register(DeskflowPlugin(event_bus, config.deskflow.model_dump()))
+        plugin_registry.register(MultiMonitorToolPlugin(event_bus, config.tools.model_dump()))
+        deskflow_cfg = {**config.deskflow.model_dump(), **config.tools.model_dump()}
+        plugin_registry.register(DeskflowPlugin(event_bus, deskflow_cfg))
         plugin_registry.register(AudioPlugin(event_bus, config.audio.model_dump()))
-        plugin_registry.register(DDCPlugin(event_bus))
+        plugin_registry.register(DDCPlugin(event_bus, config.tools.model_dump()))
 
     # --- 创建控制器 ---
     controller = Controller(

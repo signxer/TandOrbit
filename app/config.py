@@ -52,6 +52,14 @@ class AudioConfig(BaseModel):
     windows_output: str = "USB DAC"
 
 
+class ToolsConfig(BaseModel):
+    """外部工具路径配置"""
+
+    multimonitortool_path: str = "MultiMonitorTool.exe"
+    controlmymonitor_path: str = "ControlMyMonitor.exe"
+    deskflow_path: str = "deskflow.exe"
+
+
 import platform
 
 
@@ -77,6 +85,7 @@ class AppConfig(BaseModel):
     deskflow: DeskflowConfig = Field(default_factory=DeskflowConfig)
     betterdisplay: BetterDisplayConfig = Field(default_factory=BetterDisplayConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
     log_level: str = "INFO"
     log_dir: str = "logs"
