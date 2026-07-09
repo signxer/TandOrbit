@@ -151,6 +151,22 @@ def main() -> None:
     # 启动 Mac Agent Server（权威模式状态源）
     _start_agent_server(config, event_bus, state_manager)
 
+    # 启动网络自动发现
+    from app.communication.discovery import DiscoveryService
+    discovery = DiscoveryService(local_port=config.windows.port)
+    discovery.start()
+
+    def _on_peer_found(peer):
+        """发现 Windows 对端后自动更新配置"""
+        if peer["role"] == "windows":
+            win_host = peer["host"]
+            cfg = config_manager.config
+            if cfg.windows.host != win_host:
+                config_manager.update({"windows": {"host": win_host}})
+                logger.info(f"Auto-discovered Windows at {win_host}, config updated")
+
+    discovery.on_peer_discovered(_on_peer_found)
+
     # 创建 Qt 应用
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)

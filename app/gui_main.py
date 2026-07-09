@@ -206,6 +206,22 @@ def _main() -> None:
     if not is_mac:
         _start_agent_server(config, event_bus, state_manager)
 
+    # --- 启动网络自动发现 ---
+    from app.communication.discovery import DiscoveryService
+    discovery = DiscoveryService(local_port=config.windows.port)
+    discovery.start()
+
+    def _on_peer_found(peer):
+        """发现 Mac 对端后自动更新配置"""
+        if peer["role"] == "mac":
+            mac_host = peer["host"]
+            cfg = config_manager.config
+            if cfg.deskflow.server_host != mac_host:
+                config_manager.update({"deskflow": {"server_host": mac_host}})
+                logger.info(f"Auto-discovered Mac at {mac_host}, config updated")
+
+    discovery.on_peer_discovered(_on_peer_found)
+
     # --- 创建 Qt 应用 ---
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
