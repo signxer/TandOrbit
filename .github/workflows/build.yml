@@ -33,6 +33,12 @@ jobs:
       - name: Build macOS app
         run: pyinstaller tandorbit.spec --noconfirm
 
+      - name: Fix bundle for code signing
+        run: python scripts/fix_bundle_for_codesign.py dist/TandOrbit.app
+
+      - name: Ad-hoc sign the app
+        run: codesign --force --sign - dist/TandOrbit.app
+
       - name: Create DMG (optional)
         run: |
           mkdir -p dist/dmg

@@ -74,7 +74,7 @@ if sys.platform == 'darwin':
         icon='resources/icon.icns',
         bundle_identifier='com.tandorbit.app',
         info_plist={
-            'CFBundleShortVersionString': '1.0.0',
+            'CFBundleShortVersionString': '1.1.1',
             'CFBundleName': 'TandOrbit',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # 后台运行，不显示 Dock 图标
