@@ -12,9 +12,9 @@ import threading
 from pathlib import Path
 
 from loguru import logger
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QLabel, QMessageBox, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
 from app.config import ConfigManager
 from app.controller.controller import Controller
@@ -137,13 +137,6 @@ def _start_agent_server(config) -> None:
 
 def main() -> None:
     """跨平台 GUI 主入口"""
-    # -F 模式解压需要时间，先弹系统通知告知用户
-    if sys.platform == "darwin":
-        import subprocess
-        subprocess.Popen(
-            ["osascript", "-e", 'display notification "正在启动，请稍候..." with title "TandOrbit"'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
     try:
         _main()
     except Exception:
@@ -213,27 +206,10 @@ def _main() -> None:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    # 立即显示加载提示（-F 模式解压需要时间）
-    splash = QLabel("正在加载 TandOrbit...")
-    splash.setAlignment(Qt.AlignmentFlag.AlignCenter)
-    splash.setFixedSize(300, 80)
-    splash.setStyleSheet("""
-        QLabel {
-            background: white;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            font-size: 14px;
-            color: #333;
-        }
-    """)
-    splash.show()
-    app.processEvents()  # 强制刷新 UI
-
     # 创建主窗口
     window = MainWindow(hotkeys=config.hotkeys)
     window.setWindowIcon(QIcon(str(_resource_path("resources/tray_icon.png"))))
     window.show()
-    splash.close()
 
     # 创建系统托盘
     tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
