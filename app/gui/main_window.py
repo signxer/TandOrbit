@@ -9,7 +9,7 @@ import platform
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QTimer, QSize, Qt, Signal
 from PySide6.QtGui import QFont, QIcon, QPixmap
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -231,7 +232,7 @@ class MainWindow(QMainWindow):
         tool_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         sleep_btn = self._make_icon_button("resources/sleep.svg")
-        sleep_btn.clicked.connect(self.sleep_display_requested.emit)
+        sleep_btn.clicked.connect(self._confirm_sleep)
         tool_row.addWidget(sleep_btn)
 
         settings_btn = self._make_icon_button("resources/setting.svg")
@@ -276,3 +277,32 @@ class MainWindow(QMainWindow):
         self._mac_status.update_status(mac_online)
         self._win_status.update_status(win_online)
         self._deskflow_status.update_status(deskflow_connected)
+
+    def _confirm_sleep(self) -> None:
+        """确认关闭显示器（带 3 秒倒计时）"""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("关闭显示器")
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+        msg.setDefaultButton(QMessageBox.StandardButton.Cancel)
+
+        countdown = [3]
+
+        def _update_text():
+            if countdown[0] > 0:
+                msg.setText(f"将在 {countdown[0]} 秒后关闭显示器...")
+                countdown[0] -= 1
+            else:
+                timer.stop()
+                msg.done(QMessageBox.StandardButton.Ok)
+
+        timer = QTimer(self)
+        timer.timeout.connect(_update_text)
+
+        _update_text()
+        timer.start(1000)
+
+        result = msg.exec()
+        timer.stop()
+
+        if result == QMessageBox.StandardButton.Ok:
+            self.sleep_display_requested.emit()
