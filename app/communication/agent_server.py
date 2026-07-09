@@ -364,9 +364,11 @@ class AgentServer:
             if hasattr(self, "_state_manager") and self._state_manager:
                 self._state_manager.force_set(mode)
                 logger.info(f"Mode synced from remote: {mode_name}")
-            # Windows 端收到模式变更后唤醒显示器
+            # 收到模式变更后唤醒本机显示器
             if platform.system() == "Windows":
                 await self._wake_displays()
+            else:
+                await self._wake_mac_displays()
             # 如果是 Mac 端收到，转发到 Windows Agent
             await self._forward_mode_to_windows(mode_name)
             return JSONResponse(
@@ -382,13 +384,25 @@ class AgentServer:
         """唤醒 Windows 显示器"""
         import ctypes
         try:
-            # 先发送鼠标移动事件唤醒系统
             ctypes.windll.user32.mouse_event(0x0001, 0, 0, 0, 0)
-            # 再发送显示器唤醒命令
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
             logger.info("Windows displays woken up")
         except Exception as e:
             logger.warning(f"Wake displays failed: {e}")
+
+    async def _wake_mac_displays(self) -> None:
+        """唤醒 Mac 显示器"""
+        import asyncio
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                "caffeinate -u -t 1",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.wait()
+            logger.info("Mac displays woken up")
+        except Exception as e:
+            logger.warning(f"Wake Mac displays failed: {e}")
 
     async def _forward_mode_to_windows(self, mode_name: str) -> None:
         """Mac 端收到模式变更后转发到 Windows Agent"""
