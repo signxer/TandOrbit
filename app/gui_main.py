@@ -291,6 +291,36 @@ def _main() -> None:
             win_online=not is_mac,
             deskflow_connected=False,
         )
+        # Windows 端：定时 ping Mac 检测是否在线
+        if not is_mac:
+            from PySide6.QtCore import QTimer
+            import subprocess
+
+            mac_host = config.deskflow.server_host
+
+            def _check_mac_online():
+                try:
+                    result = subprocess.run(
+                        ["ping", "-n", "1", "-w", "2000", mac_host],
+                        capture_output=True, timeout=3,
+                    )
+                    online = result.returncode == 0
+                except Exception:
+                    online = False
+                cur_mac = window._mac_status._online
+                cur_deskflow = window._deskflow_status._online
+                if online != cur_mac:
+                    window.update_device_status(
+                        mac_online=online,
+                        win_online=True,
+                        deskflow_connected=cur_deskflow,
+                    )
+
+            mac_timer = QTimer()
+            mac_timer.timeout.connect(_check_mac_online)
+            mac_timer.start(5000)
+            # 首次立即检测
+            _check_mac_online()
 
     worker.finished.connect(on_init_done)
 

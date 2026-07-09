@@ -247,11 +247,12 @@ class Controller:
             await self._plugins.enable_all()
         self._init_results = init_results
 
-        # 如果 Windows 在线，设置初始状态为 MAC
-        if windows_online:
-            self._state.force_set(Mode.MAC)
+        # 根据平台设置初始模式
+        import platform
+        if platform.system() == "Windows":
+            self._state.force_set(Mode.WINDOWS)
         else:
-            self._state.force_set(Mode.MAC)  # 默认 Mac 模式
+            self._state.force_set(Mode.MAC)
 
         return ok
 
