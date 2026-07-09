@@ -253,7 +253,12 @@ def _main() -> None:
     window.sleep_display_requested.connect(lambda: worker.run_async(controller.sleep_display()))
     window.settings_requested.connect(open_settings)
     tray.mode_switch_requested.connect(on_mode_switch)
-    tray.show_window_requested.connect(window.show)
+    def show_and_activate():
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    tray.show_window_requested.connect(show_and_activate)
     tray.settings_requested.connect(open_settings)
     tray.quit_requested.connect(app.quit)
 
