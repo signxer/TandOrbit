@@ -5,7 +5,7 @@ setup(
     name="TandOrbit",
     version="1.0.0",
     install_requires=[],
-    app=["app/gui_main.py"],
+    app=["app/main.py"],
     data_files=[
         ("resources", [
             "resources/apple.svg",
