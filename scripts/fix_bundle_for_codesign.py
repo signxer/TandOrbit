@@ -99,7 +99,26 @@ def fix_bundle(app_path: Path) -> None:
         except OSError:
             pass
 
+    # 清理 Resources 中的自引用/循环符号链接（PyInstaller BUNDLE 创建的）
+    removed_symlinks = 0
+    for root, dirs, files in os.walk(resources):
+        root_path = Path(root)
+        for fname in files:
+            fpath = root_path / fname
+            if not fpath.is_symlink():
+                continue
+            try:
+                target = fpath.resolve()
+                if not target.exists():
+                    fpath.unlink()
+                    removed_symlinks += 1
+            except OSError:
+                # 循环链接会导致 resolve() 抛出 OSError (ELOOP)
+                fpath.unlink()
+                removed_symlinks += 1
+
     print(f"Moved {moved_count} non-code files from Frameworks to Resources")
+    print(f"Removed {removed_symlinks} self-referencing symlinks from Resources")
 
 
 if __name__ == '__main__':
