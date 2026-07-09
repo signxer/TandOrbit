@@ -83,71 +83,79 @@ class Controller:
 
     def _build_pipeline(self, from_mode: Mode, to_mode: Mode) -> ActionPipeline:
         """根据目标模式构建动作管道"""
+        import platform
+        is_mac = platform.system() == "Darwin"
+
         pipeline = ActionPipeline(
             name=f"{from_mode.name}_to_{to_mode.name}",
             event_bus=self._event_bus,
         )
 
         cfg = self._config.config
-        win_client = self._get_win_client()
+        win_client = self._get_win_client() if is_mac else None
         deskflow = self._get_plugin("deskflow")
-        display = self._get_plugin("betterdisplay")
+        display = self._get_plugin("betterdisplay") if is_mac else None
         audio = self._get_plugin("audio")
 
         # === 切换到 Mac 模式 ===
         if to_mode == Mode.MAC:
-            pipeline.add_action(
-                ConfigureDisplaysForMac(mac_display_plugin=display, win_client=win_client)
-            )
-            pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-            pipeline.add_action(SleepWindowsAction(
-                agent_host=cfg.windows.host,
-                agent_port=cfg.windows.port,
-            ))
-            if audio:
-                pipeline.add_action(SetAudioMacAction(
-                    audio_plugin=audio,
-                    device=cfg.audio.mac_output,
+            if is_mac:
+                # Mac 端：配置显示器 + 休眠 Windows
+                pipeline.add_action(
+                    ConfigureDisplaysForMac(mac_display_plugin=display, win_client=win_client)
+                )
+                pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+                pipeline.add_action(SleepWindowsAction(
+                    agent_host=cfg.windows.host,
+                    agent_port=cfg.windows.port,
                 ))
+                if audio:
+                    pipeline.add_action(SetAudioMacAction(
+                        audio_plugin=audio,
+                        device=cfg.audio.mac_output,
+                    ))
+            else:
+                # Windows 端：停止 Deskflow（显示器和休眠由 Mac 端控制）
+                pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
-            # 如果从 Mac 模式过来，需要先唤醒 Windows
-            if from_mode == Mode.MAC:
-                pipeline.add_action(WakeWindowsAction(
-                    mac_address=cfg.windows.mac_address,
-                    agent_host=cfg.windows.host,
-                    agent_port=cfg.windows.port,
-                    timeout=60.0,
-                ))
-            pipeline.add_action(
-                ConfigureDisplaysForWindows(
-                    mac_display_plugin=display, win_client=win_client
+            if is_mac:
+                # Mac 端：唤醒 Windows + 配置显示器 + 休眠自己
+                if from_mode == Mode.MAC:
+                    pipeline.add_action(WakeWindowsAction(
+                        mac_address=cfg.windows.mac_address,
+                        agent_host=cfg.windows.host,
+                        agent_port=cfg.windows.port,
+                        timeout=60.0,
+                    ))
+                pipeline.add_action(
+                    ConfigureDisplaysForWindows(
+                        mac_display_plugin=display, win_client=win_client
+                    )
                 )
-            )
-            pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-            pipeline.add_action(SleepMacAction())
-            if win_client:
-                pipeline.add_action(SetAudioWindowsAction(
-                    win_client=win_client,
-                    device=cfg.audio.windows_output,
-                ))
+                pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+                pipeline.add_action(SleepMacAction())
+            else:
+                # Windows 端：停止 Deskflow（显示器由 Mac 端控制）
+                pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到共享模式 ===
         elif to_mode == Mode.SHARE:
-            # 如果从 Mac 模式过来，需要先唤醒 Windows
-            if from_mode == Mode.MAC:
-                pipeline.add_action(WakeWindowsAction(
-                    mac_address=cfg.windows.mac_address,
-                    agent_host=cfg.windows.host,
-                    agent_port=cfg.windows.port,
-                    timeout=60.0,
-                ))
-            pipeline.add_action(
-                ConfigureDisplaysForShare(
-                    mac_display_plugin=display, win_client=win_client
+            if is_mac:
+                # Mac 端：唤醒 Windows + 配置显示器
+                if from_mode == Mode.MAC:
+                    pipeline.add_action(WakeWindowsAction(
+                        mac_address=cfg.windows.mac_address,
+                        agent_host=cfg.windows.host,
+                        agent_port=cfg.windows.port,
+                        timeout=60.0,
+                    ))
+                pipeline.add_action(
+                    ConfigureDisplaysForShare(
+                        mac_display_plugin=display, win_client=win_client
+                    )
                 )
-            )
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
         return pipeline
