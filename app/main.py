@@ -92,6 +92,29 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     )
 
 
+def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager) -> None:
+    """启动 Mac Agent Server（权威模式状态源）"""
+    import threading
+
+    import uvicorn
+
+    from app.communication.agent_server import AgentServer
+
+    server = AgentServer(host="0.0.0.0", port=config.windows.port)
+    server.set_state_manager(state_manager)
+
+    app = server.create_app()
+
+    def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        uv_config = uvicorn.Config(app, host="0.0.0.0", port=config.windows.port, log_level="warning")
+        loop.run_until_complete(uvicorn.Server(uv_config).serve())
+
+    threading.Thread(target=_run, daemon=True).start()
+    logger.info(f"Mac Agent Server starting on port {config.windows.port}")
+
+
 def main() -> None:
     """Mac 端主入口"""
     # 加载配置
@@ -124,6 +147,9 @@ def main() -> None:
         plugin_registry=plugin_registry,
         config_manager=config_manager,
     )
+
+    # 启动 Mac Agent Server（权威模式状态源）
+    _start_agent_server(config, event_bus, state_manager)
 
     # 创建 Qt 应用
     app = QApplication(sys.argv)

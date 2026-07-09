@@ -216,8 +216,15 @@ class Controller:
                 # Mac → Windows Agent
                 await self._get_win_client().set_mode(mode.name)
             else:
-                # Windows → Mac（Mac 没有 Agent Server，暂不支持反向同步）
-                pass
+                # Windows → Mac Agent（Mac 是权威状态源）
+                cfg = self._config.config
+                mac_host = cfg.deskflow.server_host
+                async with __import__("httpx").AsyncClient(timeout=5.0) as client:
+                    resp = await client.post(
+                        f"http://{mac_host}:{cfg.windows.port}/api/mode/set",
+                        json={"mode": mode.name},
+                    )
+                    resp.raise_for_status()
         except Exception as e:
             logger.warning(f"Mode sync to remote failed: {e}")
 

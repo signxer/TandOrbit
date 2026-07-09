@@ -350,7 +350,7 @@ class AgentServer:
             )
 
     async def _set_mode(self, request: Request) -> JSONResponse:
-        """接收远端模式变更通知"""
+        """接收远端模式变更通知（Mac 端收到后会同步到 Windows）"""
         try:
             body = await request.json()
             mode_name = body.get("mode", "")
@@ -363,6 +363,8 @@ class AgentServer:
             if hasattr(self, "_state_manager") and self._state_manager:
                 self._state_manager.force_set(mode)
                 logger.info(f"Mode synced from remote: {mode_name}")
+            # 如果是 Mac 端收到，转发到 Windows Agent
+            await self._forward_mode_to_windows(mode_name)
             return JSONResponse(
                 AgentResponse(success=True, message=f"Mode set to {mode_name}").model_dump(mode="json")
             )
@@ -371,3 +373,20 @@ class AgentServer:
                 AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
+
+    async def _forward_mode_to_windows(self, mode_name: str) -> None:
+        """Mac 端收到模式变更后转发到 Windows Agent"""
+        import platform
+        if platform.system() != "Darwin":
+            return
+        try:
+            import httpx
+            from app.config import ConfigManager
+            cfg = ConfigManager().load()
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"http://{cfg.windows.host}:{cfg.windows.port}/api/mode/set",
+                    json={"mode": mode_name},
+                )
+        except Exception as e:
+            logger.warning(f"Forward mode to Windows failed: {e}")
