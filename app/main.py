@@ -100,7 +100,8 @@ def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager
 
     from app.communication.agent_server import AgentServer
 
-    server = AgentServer(host="0.0.0.0", port=config.windows.port)
+    port = config.mac.port
+    server = AgentServer(host="0.0.0.0", port=port)
     server.set_state_manager(state_manager)
 
     app = server.create_app()
@@ -108,11 +109,11 @@ def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager
     def _run():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        uv_config = uvicorn.Config(app, host="0.0.0.0", port=config.windows.port, log_level="warning")
+        uv_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
         loop.run_until_complete(uvicorn.Server(uv_config).serve())
 
     threading.Thread(target=_run, daemon=True).start()
-    logger.info(f"Mac Agent Server starting on port {config.windows.port}")
+    logger.info(f"Mac Agent Server starting on port {port}")
 
 
 def main() -> None:
@@ -161,7 +162,7 @@ def main() -> None:
 
     # 启动网络自动发现
     from app.communication.discovery import DiscoveryService
-    discovery = DiscoveryService(local_port=config.windows.port)
+    discovery = DiscoveryService(local_port=config.mac.port)
     discovery.start()
 
     def _on_peer_found(peer):
