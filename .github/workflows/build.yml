@@ -39,10 +39,10 @@ jobs:
       - name: Ad-hoc sign the app
         run: codesign --force --sign - dist/TandOrbit.app
 
-      - name: Create DMG (optional)
+      - name: Create DMG
         run: |
           mkdir -p dist/dmg
-          cp -r dist/TandOrbit.app dist/dmg/
+          cp -RL dist/TandOrbit.app dist/dmg/
           hdiutil create -volname "TandOrbit" -srcfolder dist/dmg -ov -format UDZO dist/TandOrbit-macOS.dmg
 
       - name: Upload macOS artifact
