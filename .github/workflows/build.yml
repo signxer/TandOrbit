@@ -30,21 +30,9 @@ jobs:
       - name: Run tests
         run: python -m pytest tests/ -v
 
-      - name: Create icon.icns
+      - name: Use new icon
         run: |
-          mkdir -p icon.iconset
-          sips -z 16 16 icon.png --out icon.iconset/icon_16x16.png
-          sips -z 32 32 icon.png --out icon.iconset/icon_16x16@2x.png
-          sips -z 32 32 icon.png --out icon.iconset/icon_32x32.png
-          sips -z 64 64 icon.png --out icon.iconset/icon_32x32@2x.png
-          sips -z 128 128 icon.png --out icon.iconset/icon_128x128.png
-          sips -z 256 256 icon.png --out icon.iconset/icon_128x128@2x.png
-          sips -z 256 256 icon.png --out icon.iconset/icon_256x256.png
-          sips -z 512 512 icon.png --out icon.iconset/icon_256x256@2x.png
-          sips -z 512 512 icon.png --out icon.iconset/icon_512x512.png
-          sips -z 1024 1024 icon.png --out icon.iconset/icon_512x512@2x.png
-          iconutil -c icns icon.iconset -o icon.icns
-          rm -rf icon.iconset
+          cp new_icon.icns icon.icns
 
       - name: Build macOS executable
         run: pyinstaller -F -w --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --runtime-hook=runtime_hook.py --name=TandOrbit app/gui_main.py
@@ -77,11 +65,11 @@ jobs:
             --volicon "icon.icns" \
             --background "dmg_background.png" \
             --window-pos 200 120 \
-            --window-size 704 464 \
-            --icon-size 80 \
-            --icon "TandOrbit.app" 176 230 \
+            --window-size 640 440 \
+            --icon-size 120 \
+            --icon "TandOrbit.app" 220 200 \
             --hide-extension "TandOrbit.app" \
-            --app-drop-link 528 230 \
+            --app-drop-link 420 200 \
             --no-internet-enable \
             "dist/TandOrbit-macOS.dmg" \
             "TandOrbit.app" || {
