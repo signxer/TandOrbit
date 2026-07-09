@@ -143,6 +143,16 @@ class BetterDisplayPlugin(Plugin):
         ok = await self._run_cli("set --mirror=off")
         return ok is not None
 
+    async def screen_off(self, display_id: int) -> bool:
+        """关闭显示器屏幕（不断开连接）"""
+        ok = await self._run_cli(f"set --tagID={display_id} --screen=off")
+        return ok is not None
+
+    async def screen_on(self, display_id: int) -> bool:
+        """打开显示器屏幕"""
+        ok = await self._run_cli(f"set --tagID={display_id} --screen=on")
+        return ok is not None
+
     async def save_profile(self, name: str) -> bool:
         """保存当前显示配置（BetterDisplay CLI 不支持此操作）"""
         logger.warning("BetterDisplay CLI does not support profile save")

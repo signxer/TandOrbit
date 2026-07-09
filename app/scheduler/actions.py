@@ -209,6 +209,8 @@ class ConfigureDisplaysForWindows(Action):
         if self._mac_display:
             try:
                 await self._mac_display.disable_display(2)
+                # 等待断开生效，让显示器自动切换到 Windows 输入源
+                await asyncio.sleep(2.0)
             except Exception as e:
                 logger.warning(f"Mac display disable error: {e}")
 
