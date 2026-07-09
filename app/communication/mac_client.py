@@ -206,3 +206,15 @@ class MacClient:
         except Exception as e:
             logger.error(f"Set audio device failed: {e}")
             return False
+
+    async def set_mode(self, mode_name: str) -> bool:
+        """通知远端切换模式"""
+        try:
+            client = await self._get_client()
+            resp = await client.post("/api/mode/set", json={"mode": mode_name})
+            resp.raise_for_status()
+            data = AgentResponse(**resp.json())
+            return data.success
+        except Exception as e:
+            logger.error(f"Set mode failed: {e}")
+            return False

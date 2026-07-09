@@ -200,11 +200,26 @@ class Controller:
         if success:
             self._state.commit_transition()
             logger.info(f"Mode switched to {target.name}")
+            # 通知远端同步模式
+            await self._sync_mode_to_remote(target)
         else:
             self._state.rollback_transition()
             logger.error(f"Failed to switch to {target.name}, rolled back")
 
         return success
+
+    async def _sync_mode_to_remote(self, mode: Mode) -> None:
+        """同步模式到远端"""
+        import platform
+        try:
+            if platform.system() == "Darwin":
+                # Mac → Windows Agent
+                await self._get_win_client().set_mode(mode.name)
+            else:
+                # Windows → Mac（Mac 没有 Agent Server，暂不支持反向同步）
+                pass
+        except Exception as e:
+            logger.warning(f"Mode sync to remote failed: {e}")
 
     async def check_windows_agent(self) -> bool:
         """检查 Windows Agent 是否在线"""

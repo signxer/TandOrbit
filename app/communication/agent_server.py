@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from app.enums import Mode
 from app.models import AgentHealthStatus, AgentResponse, DisplayInfo
 
 
@@ -45,6 +46,10 @@ class AgentServer:
         self._deskflow_plugin = deskflow
         self._audio_plugin = audio
 
+    def set_state_manager(self, state_manager: Any) -> None:
+        """注入状态管理器（用于模式同步）"""
+        self._state_manager = state_manager
+
     def create_app(self) -> Starlette:
         """创建 Starlette 应用"""
         routes = [
@@ -63,6 +68,7 @@ class AgentServer:
             Route("/api/audio/set", self._set_audio_device, methods=["POST"]),
             Route("/api/power/sleep", self._sleep, methods=["POST"]),
             Route("/api/power/shutdown", self._shutdown, methods=["POST"]),
+            Route("/api/mode/set", self._set_mode, methods=["POST"]),
         ]
         self._app = Starlette(routes=routes)
         return self._app
@@ -336,6 +342,29 @@ class AgentServer:
             subprocess.Popen(["shutdown", "/s", "/t", "5"], shell=True)
             return JSONResponse(
                 AgentResponse(success=True, message="Shutdown command sent").model_dump(mode="json")
+            )
+        except Exception as e:
+            return JSONResponse(
+                AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
+                status_code=500,
+            )
+
+    async def _set_mode(self, request: Request) -> JSONResponse:
+        """接收远端模式变更通知"""
+        try:
+            body = await request.json()
+            mode_name = body.get("mode", "")
+            if mode_name not in Mode.__members__:
+                return JSONResponse(
+                    AgentResponse(success=False, error=f"Invalid mode: {mode_name}").model_dump(mode="json"),
+                    status_code=400,
+                )
+            mode = Mode[mode_name]
+            if hasattr(self, "_state_manager") and self._state_manager:
+                self._state_manager.force_set(mode)
+                logger.info(f"Mode synced from remote: {mode_name}")
+            return JSONResponse(
+                AgentResponse(success=True, message=f"Mode set to {mode_name}").model_dump(mode="json")
             )
         except Exception as e:
             return JSONResponse(

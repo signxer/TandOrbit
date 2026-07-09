@@ -89,7 +89,7 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     )
 
 
-def _start_agent_server(config) -> None:
+def _start_agent_server(config, event_bus: EventBus, state_manager) -> None:
     """在后台线程启动 Windows Agent HTTP Server"""
     import uvicorn
 
@@ -98,7 +98,6 @@ def _start_agent_server(config) -> None:
     from plugins.deskflow.plugin import DeskflowPlugin
     from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
 
-    event_bus = EventBus()
     display_plugin = MultiMonitorToolPlugin(event_bus, config.tools.model_dump())
     deskflow_cfg = {**config.deskflow.model_dump(), **config.tools.model_dump()}
     deskflow_plugin = DeskflowPlugin(event_bus, deskflow_cfg)
@@ -110,6 +109,7 @@ def _start_agent_server(config) -> None:
         deskflow=deskflow_plugin,
         audio=audio_plugin,
     )
+    server.set_state_manager(state_manager)
 
     app = server.create_app()
 
@@ -204,7 +204,7 @@ def _main() -> None:
 
     # --- 启动 Windows Agent Server ---
     if not is_mac:
-        _start_agent_server(config)
+        _start_agent_server(config, event_bus, state_manager)
 
     # --- 创建 Qt 应用 ---
     app = QApplication(sys.argv)
