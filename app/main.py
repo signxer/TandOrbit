@@ -290,11 +290,14 @@ def main() -> None:
     def on_init_done() -> None:
         window.update_mode(state_manager.current_mode)
         tray.update_mode(state_manager.current_mode)
-        window.update_device_status(
-            mac_online=True,
-            win_online=False,
-            deskflow_connected=False,
-        )
+        # 不覆盖已有的状态（发现服务可能已经更新了）
+        # 只设置初始状态，如果发现服务还没更新的话
+        if not window._win_status._online:
+            window.update_device_status(
+                mac_online=True,
+                win_online=False,
+                deskflow_connected=False,
+            )
         # 定时 ping Windows 检测在线状态
         from PySide6.QtCore import QTimer
         import subprocess

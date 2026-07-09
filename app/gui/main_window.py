@@ -330,14 +330,9 @@ class MainWindow(QMainWindow):
 
     def update_device_status(self, mac_online: bool, win_online: bool, deskflow_connected: bool) -> None:
         """更新设备状态"""
-        from loguru import logger
-        logger.info(f"[UI] update_device_status: mac={mac_online}, win={win_online}, deskflow={deskflow_connected}")
         self._mac_status.update_status(mac_online)
         self._win_status.update_status(win_online)
         self._deskflow_status.update_status(deskflow_connected)
-        # 强制刷新 UI
-        self.update()
-        self.repaint()
 
     def _confirm_sleep(self) -> None:
         """确认关闭显示器（带 3 秒倒计时）"""
