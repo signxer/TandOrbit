@@ -47,7 +47,11 @@ jobs:
           rm -rf icon.iconset
 
       - name: Build macOS app
-        run: python setup.py py2app
+        run: |
+          # py2app 读 pyproject.toml 的 dependencies 会报错，临时移开
+          mv pyproject.toml pyproject.toml.bak
+          python setup.py py2app
+          mv pyproject.toml.bak pyproject.toml
 
       - name: Create DMG
         run: |
