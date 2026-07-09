@@ -49,6 +49,11 @@ def fix_bundle(app_path: Path) -> None:
     for root, dirs, files in os.walk(frameworks, followlinks=False):
         root_path = Path(root)
 
+        # 跳过 .framework 内部的文件（framework 结构不能破坏）
+        rel_root = root_path.relative_to(frameworks)
+        if ".framework" in str(rel_root):
+            continue
+
         for fname in files:
             fpath = root_path / fname
 

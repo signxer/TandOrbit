@@ -293,7 +293,8 @@ class SettingsDialog(QDialog):
         if not self._plugin_provider:
             return
         plugins = self._plugin_provider()
-        display_plugin = plugins.get("betterdisplay")
+        # macOS 用 betterdisplay，Windows 用 multimonitortool
+        display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
         if not display_plugin:
             return
         try:
