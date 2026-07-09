@@ -189,13 +189,20 @@ TandOrbit/
 
 ### macOS 安装说明
 
-由于应用未使用 Apple Developer 证书签名，首次打开时会提示"无法打开"或"已损坏"。需要手动移除系统隔离标记：
+由于应用未使用 Apple Developer 证书签名，首次打开需要手动授权：
+
+1. 将 `TandOrbit.app` 拖入 `/Applications/` 目录
+2. **右键点击** TandOrbit → 选择「打开」
+3. 在弹窗中点击「打开」
+
+如果右键打开仍被阻止，尝试：
 
 ```bash
 sudo xattr -cr /Applications/TandOrbit.app
+sudo xattr -d com.apple.provenance /Applications/TandOrbit.app
 ```
 
-或者：右键点击应用 → 选择「打开」→ 在弹窗中再次点击「打开」。
+然后再次右键 → 打开。
 
 ### 从源码构建
 

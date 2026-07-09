@@ -36,6 +36,9 @@ jobs:
       - name: Fix bundle structure
         run: python scripts/fix_bundle_for_codesign.py dist/TandOrbit.app
 
+      - name: Ad-hoc sign
+        run: codesign --force --sign - dist/TandOrbit.app
+
       - name: Create DMG
         run: |
           mkdir -p dist/dmg
