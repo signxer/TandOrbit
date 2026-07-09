@@ -75,16 +75,16 @@ jobs:
           create-dmg \
             --volname "TandOrbit" \
             --volicon "icon.icns" \
+            --background "dmg_background.png" \
             --window-pos 200 120 \
-            --window-size 600 400 \
+            --window-size 704 464 \
             --icon-size 100 \
-            --icon "TandOrbit.app" 150 200 \
+            --icon "TandOrbit.app" 176 260 \
             --hide-extension "TandOrbit.app" \
-            --app-drop-link 450 200 \
+            --app-drop-link 528 260 \
             --no-internet-enable \
             "dist/TandOrbit-macOS.dmg" \
             "TandOrbit.app" || {
-              # fallback
               mkdir -p dmg-dist
               cp -r TandOrbit.app dmg-dist/
               ln -sf /Applications dmg-dist/Applications
