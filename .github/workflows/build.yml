@@ -71,10 +71,25 @@ jobs:
 
       - name: Create DMG
         run: |
-          mkdir -p dmg-dist
-          cp -r TandOrbit.app dmg-dist/
-          ln -sf /Applications dmg-dist/Applications
-          hdiutil create -volname TandOrbit -srcfolder dmg-dist -ov -format UDZO dist/TandOrbit-macOS.dmg
+          brew install create-dmg
+          create-dmg \
+            --volname "TandOrbit" \
+            --volicon "icon.icns" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "TandOrbit.app" 150 200 \
+            --hide-extension "TandOrbit.app" \
+            --app-drop-link 450 200 \
+            --no-internet-enable \
+            "dist/TandOrbit-macOS.dmg" \
+            "TandOrbit.app" || {
+              # fallback
+              mkdir -p dmg-dist
+              cp -r TandOrbit.app dmg-dist/
+              ln -sf /Applications dmg-dist/Applications
+              hdiutil create -volname TandOrbit -srcfolder dmg-dist -ov -format UDZO dist/TandOrbit-macOS.dmg
+            }
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
