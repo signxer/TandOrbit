@@ -46,16 +46,16 @@ jobs:
           iconutil -c icns icon.iconset -o icon.icns
           rm -rf icon.iconset
 
-      - name: Build macOS executable
-        run: pyinstaller -F -w --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --name=TandOrbit app/gui_main.py
+      - name: Build macOS app (directory mode)
+        run: pyinstaller -D -w --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --name=TandOrbit app/gui_main.py
 
       - name: Create .app bundle
         run: |
           mkdir -p TandOrbit.app/Contents/MacOS
           mkdir -p TandOrbit.app/Contents/Resources
-          cp dist/TandOrbit TandOrbit.app/Contents/MacOS/
+          # 复制 PyInstaller 输出（含 Qt 依赖）
+          cp -a dist/TandOrbit/* TandOrbit.app/Contents/MacOS/
           cp icon.icns TandOrbit.app/Contents/Resources/
-          cp -r resources TandOrbit.app/Contents/Resources/
           cat > TandOrbit.app/Contents/Info.plist << 'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
