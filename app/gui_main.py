@@ -255,7 +255,51 @@ def _main() -> None:
 
     # --- 连接信号 ---
     def on_mode_switch(mode: Mode) -> None:
+        if mode == Mode.MAC:
+            mac_online = window._mac_status._online
+            if not mac_online:
+                cfg = config_manager.config
+                if cfg.mac.mac_address:
+                    reply = QMessageBox.question(
+                        window,
+                        "Mac 离线",
+                        "Mac 未响应，是否发送 WoL 唤醒？",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        worker.run_async(_wake_mac_and_switch(mode))
+                    return
+                else:
+                    QMessageBox.warning(
+                        window, "缺少配置",
+                        "请先在设置中填写 Mac 的 MAC 地址。",
+                    )
+                    return
         worker.run_async(controller.switch_mode(mode))
+
+    async def _wake_mac_and_switch(mode: Mode):
+        """发送 WoL 唤醒 Mac 后切换模式"""
+        cfg = config_manager.config
+        wol = plugin_registry.get("wol")
+        if wol:
+            await wol.wake(cfg.mac.mac_address)
+            logger.info(f"WoL sent to Mac at {cfg.mac.mac_address}")
+        # 等待 Mac 上线
+        import asyncio
+        import socket
+        for _ in range(30):
+            try:
+                s = socket.create_connection((cfg.deskflow.server_host, cfg.windows.port), timeout=2)
+                s.close()
+                logger.info("Mac is online, switching mode")
+                await controller.switch_mode(mode)
+                return
+            except OSError:
+                pass
+            await asyncio.sleep(2)
+        logger.error("Mac did not come online after WoL")
+        QMessageBox.warning(None, "唤醒超时", "Mac 未在 60 秒内上线，请检查网络。")
 
     def on_mode_changed(event: ModeChangedEvent) -> None:
         mode = Mode[event.new_mode] if event.new_mode in Mode.__members__ else Mode.UNKNOWN

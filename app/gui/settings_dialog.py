@@ -180,7 +180,7 @@ class SettingsDialog(QDialog):
             form.addRow("端口:", self._win_port)
             layout.addRow(group)
         else:
-            # Windows: 配置本地 Agent 服务端口
+            # Windows: 配置本地 Agent 服务端口 + Mac MAC 地址
             group = QGroupBox("Agent 服务（本机）")
             form = QFormLayout(group)
             self._win_port = QSpinBox()
@@ -190,6 +190,17 @@ class SettingsDialog(QDialog):
             hint.setStyleSheet("color: #888; font-size: 11px;")
             form.addRow("", hint)
             layout.addRow(group)
+
+            mac_group = QGroupBox("Mac（用于 WoL 唤醒）")
+            mac_form = QFormLayout(mac_group)
+            self._mac_mac = QLineEdit()
+            self._mac_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
+            mac_form.addRow("MAC 地址:", self._mac_mac)
+            mac_hint = QLabel("填写 Mac 的 MAC 地址，用于从 Windows 唤醒 Mac")
+            mac_hint.setStyleSheet("color: #888; font-size: 11px;")
+            mac_form.addRow("", mac_hint)
+            layout.addRow(mac_group)
+
             # Windows 端不需要这些字段，但为了代码兼容创建空对象
             self._win_host = QLineEdit()
             self._win_mac = QLineEdit()
@@ -344,6 +355,8 @@ class SettingsDialog(QDialog):
         if is_mac:
             self._win_host.setText(cfg.windows.host)
             self._win_mac.setText(cfg.windows.mac_address)
+        else:
+            self._mac_mac.setText(cfg.mac.mac_address)
         self._win_port.setValue(cfg.windows.port)
         self._df_host.setText(cfg.deskflow.server_host)
         self._df_port.setValue(cfg.deskflow.server_port)
@@ -458,6 +471,10 @@ class SettingsDialog(QDialog):
             windows_config["host"] = self._win_host.text()
             windows_config["mac_address"] = self._win_mac.text()
 
+        mac_config: dict[str, Any] = {}
+        if not is_mac:
+            mac_config["mac_address"] = self._mac_mac.text()
+
         updates = {
             "windows": windows_config,
             "display": {
@@ -480,6 +497,9 @@ class SettingsDialog(QDialog):
                 "switch_share": self._hk_share.text(),
             },
         }
+
+        if mac_config:
+            updates["mac"] = mac_config
 
         if platform.system() != "Darwin":
             updates["tools"] = {

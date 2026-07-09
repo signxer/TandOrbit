@@ -31,6 +31,13 @@ class WindowsConfig(BaseModel):
     timeout: float = 10.0
 
 
+class MacConfig(BaseModel):
+    """Mac 端配置（供 Windows 连接和唤醒）"""
+
+    host: str = "192.168.1.100"
+    mac_address: str = ""  # Mac 的 MAC 地址，用于 WoL 唤醒
+
+
 class DeskflowConfig(BaseModel):
     """Deskflow 配置"""
 
@@ -83,6 +90,7 @@ class AppConfig(BaseModel):
 
     display: DisplayConfig = Field(default_factory=DisplayConfig)
     windows: WindowsConfig = Field(default_factory=WindowsConfig)
+    mac: MacConfig = Field(default_factory=MacConfig)
     deskflow: DeskflowConfig = Field(default_factory=DeskflowConfig)
     betterdisplay: BetterDisplayConfig = Field(default_factory=BetterDisplayConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
