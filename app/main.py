@@ -39,6 +39,7 @@ class AsyncWorker(QThread):
     status_updated = Signal(bool, bool, bool)  # mac, win, deskflow
     mode_changed = Signal(str)
     init_report = Signal(list)  # [(name, success, reason)]
+    init_done = Signal()
 
     def __init__(self, controller: Controller) -> None:
         super().__init__()
@@ -51,6 +52,7 @@ class AsyncWorker(QThread):
         try:
             self._loop.run_until_complete(self._controller.initialize())
             self.init_report.emit(self._controller.init_results)
+            self.init_done.emit()
             self._loop.run_forever()
         except Exception as e:
             logger.error(f"Initialization error: {e}")
@@ -217,7 +219,7 @@ def main() -> None:
             deskflow_connected=False,
         )
 
-    worker.finished.connect(on_init_done)
+    worker.init_done.connect(on_init_done)
 
     logger.info("TandOrbit Mac client started")
     app.exec()
