@@ -28,6 +28,25 @@ class AudioPlugin(Plugin):
         self._windows_output = self.config.get("windows_output", "")
 
     async def initialize(self) -> bool:
+        if platform.system() == "Windows":
+            # 检查 AudioDeviceCmdlets 模块是否可用
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    'powershell -NoProfile -Command "Get-Module -ListAvailable AudioDeviceCmdlets"',
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+                if b"AudioDeviceCmdlets" not in stdout:
+                    self._init_error = (
+                        "AudioDeviceCmdlets 模块未安装，音频功能不可用。"
+                        "运行 Install-Module -Name AudioDeviceCmdlets -Force 安装。"
+                    )
+                    logger.warning(self._init_error)
+                    self._set_status(PluginStatus.ERROR)
+                    return False
+            except Exception:
+                pass
         self._set_status(PluginStatus.INITIALIZED)
         logger.info("Audio plugin initialized")
         return True
@@ -50,6 +69,8 @@ class AudioPlugin(Plugin):
 
     async def list_devices(self) -> list[str]:
         """列出所有音频输出设备"""
+        if self._status == PluginStatus.ERROR:
+            return []
         system = platform.system()
         if system == "Darwin":
             return await self._mac_list_devices()
@@ -59,6 +80,8 @@ class AudioPlugin(Plugin):
 
     async def get_current_device(self) -> str:
         """获取当前音频输出设备"""
+        if self._status == PluginStatus.ERROR:
+            return ""
         system = platform.system()
         if system == "Darwin":
             return await self._mac_get_current()
@@ -68,6 +91,8 @@ class AudioPlugin(Plugin):
 
     async def set_device(self, device_name: str) -> bool:
         """设置音频输出设备"""
+        if self._status == PluginStatus.ERROR:
+            return False
         system = platform.system()
         if system == "Darwin":
             return await self._mac_set_device(device_name)
