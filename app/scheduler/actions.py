@@ -55,10 +55,12 @@ class WakeWindowsAction(Action):
 
     async def execute(self) -> bool:
         # 先检查 Agent 是否已经在线
+        logger.info(f"Checking if Windows Agent is online at {self._agent_host}:{self._agent_port}")
         if await self._check_agent():
             logger.info("Windows Agent already online")
             self._was_online = True
             return True
+        logger.info("Windows Agent not online, will send WoL")
 
         # 发送 WoL
         if not self._mac_address:
