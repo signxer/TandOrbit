@@ -190,13 +190,9 @@ TandOrbit/
 ### macOS 安装说明
 
 1. 下载 `TandOrbit-macOS.dmg`，打开后将 TandOrbit 拖入 Applications
-2. 首次打开需要移除隔离标记：
-
-```bash
-sudo xattr -rd com.apple.quarantine /Applications/TandOrbit.app
-```
-
-然后双击即可打开。
+2. 首次打开需要授权，任选一种方式：
+   - **方式一**：系统设置 → 隐私与安全性 → 开发者工具 → 添加 TandOrbit
+   - **方式二**：终端执行 `sudo xattr -rd com.apple.quarantine /Applications/TandOrbit.app`
 
 ### 从源码构建
 
