@@ -344,16 +344,11 @@ class DisplaySleepAction(Action):
                 await proc.wait()
                 success = proc.returncode == 0
             elif system == "Windows":
-                proc = await asyncio.create_subprocess_shell(
-                    'powershell -Command "(Add-Type \'[DllImport("user32.dll")]'
-                    "public static extern IntPtr SendMessage(IntPtr hWnd,uint msg,"
-                    "IntPtr wParam,IntPtr lParam);' -Name 'Win32' -Namespace 'Native'"
-                    " -PassThru)::SendMessage(0xFFFF,0x0112,0xF170,2)\"",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await proc.wait()
-                success = proc.returncode == 0
+                import ctypes
+                # SC_MONITORPOWER = 0xF170, HWND_BROADCAST = 0xFFFF, WM_SYSCOMMAND = 0x0112
+                # 2 = MONITOR_OFF
+                ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+                success = True
             else:
                 logger.warning(f"Display sleep not supported on {system}")
                 return False
