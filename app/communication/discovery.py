@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from loguru import logger
 
-BROADCAST_PORT = 5001
+BROADCAST_PORT = 5002  # UDP 广播端口（与 agent 端口分开）
 BROADCAST_INTERVAL = 3  # 秒
 BROADCAST_MAGIC = "TandOrbit"
 
