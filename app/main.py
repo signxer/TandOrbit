@@ -126,6 +126,14 @@ def main() -> None:
 
     logger.info("TandOrbit Mac client starting...")
 
+    # 防止 macOS 锁屏后挂起服务
+    import subprocess
+    _caffeinate = subprocess.Popen(
+        ["caffeinate", "-i", "-s"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
     # 创建核心组件
     event_bus = EventBus()
     state_manager = StateManager(event_bus)

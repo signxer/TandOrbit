@@ -209,24 +209,32 @@ class Controller:
         return success
 
     async def _sync_mode_to_remote(self, mode: Mode) -> None:
-        """同步模式到远端"""
+        """同步模式到远端（带重试）"""
+        import asyncio
         import platform
-        try:
-            if platform.system() == "Darwin":
-                # Mac → Windows Agent
-                await self._get_win_client().set_mode(mode.name)
-            else:
-                # Windows → Mac Agent（Mac 是权威状态源）
-                cfg = self._config.config
-                mac_host = cfg.deskflow.server_host
-                async with __import__("httpx").AsyncClient(timeout=5.0) as client:
-                    resp = await client.post(
-                        f"http://{mac_host}:{cfg.windows.port}/api/mode/set",
-                        json={"mode": mode.name},
-                    )
-                    resp.raise_for_status()
-        except Exception as e:
-            logger.warning(f"Mode sync to remote failed: {e}")
+
+        for attempt in range(3):
+            try:
+                if platform.system() == "Darwin":
+                    # Mac → Windows Agent
+                    await self._get_win_client().set_mode(mode.name)
+                else:
+                    # Windows → Mac Agent（Mac 是权威状态源）
+                    cfg = self._config.config
+                    mac_host = cfg.deskflow.server_host
+                    async with __import__("httpx").AsyncClient(timeout=5.0) as client:
+                        resp = await client.post(
+                            f"http://{mac_host}:{cfg.windows.port}/api/mode/set",
+                            json={"mode": mode.name},
+                        )
+                        resp.raise_for_status()
+                return  # 成功则退出
+            except Exception as e:
+                if attempt < 2:
+                    logger.warning(f"Mode sync attempt {attempt + 1} failed: {e}, retrying...")
+                    await asyncio.sleep(2.0)
+                else:
+                    logger.error(f"Mode sync to remote failed after 3 attempts: {e}")
 
     async def check_windows_agent(self) -> bool:
         """检查 Windows Agent 是否在线"""
