@@ -236,8 +236,7 @@ def main() -> None:
         discovery_signals.peer_discovered.emit(peer)
 
     discovery.on_peer_discovered(_on_peer_found)
-    # 延迟启动发现服务，确保 Qt 事件循环已运行
-    QTimer.singleShot(500, discovery.start)
+    discovery.start()
 
     # 连接信号
     def on_mode_switch(mode: Mode) -> None:
