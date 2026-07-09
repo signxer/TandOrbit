@@ -25,7 +25,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install py2app
+          pip install pyinstaller
 
       - name: Run tests
         run: python -m pytest tests/ -v
@@ -46,17 +46,33 @@ jobs:
           iconutil -c icns icon.iconset -o icon.icns
           rm -rf icon.iconset
 
-      - name: Build macOS app
+      - name: Build macOS app (directory, console mode)
+        run: pyinstaller -D -c --icon=icon.icns --add-data="icon.png:." --add-data="resources:resources" --add-data="config:config" --name=TandOrbit app/gui_main.py
+
+      - name: Create .app bundle
         run: |
-          # py2app 读 pyproject.toml 的 dependencies 会报错，临时移开
-          mv pyproject.toml pyproject.toml.bak
-          python setup.py py2app
-          mv pyproject.toml.bak pyproject.toml
+          mkdir -p TandOrbit.app/Contents/MacOS
+          mkdir -p TandOrbit.app/Contents/Resources
+          cp -a dist/TandOrbit/* TandOrbit.app/Contents/MacOS/
+          cp icon.icns TandOrbit.app/Contents/Resources/
+          cat > TandOrbit.app/Contents/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>TandOrbit</string>
+          <key>CFBundleIconFile</key><string>icon.icns</string>
+          <key>CFBundleName</key><string>TandOrbit</string>
+          <key>CFBundleIdentifier</key><string>com.tandorbit.app</string>
+          <key>CFBundleVersion</key><string>1.0</string>
+          <key>NSHighResolutionCapable</key><true/>
+          <key>LSUIElement</key><true/>
+          </dict></plist>
+          EOF
 
       - name: Create DMG
         run: |
           mkdir -p dmg-dist
-          cp -r dist/TandOrbit.app dmg-dist/
+          cp -r TandOrbit.app dmg-dist/
           ln -sf /Applications dmg-dist/Applications
           hdiutil create -volname TandOrbit -srcfolder dmg-dist -ov -format UDZO dist/TandOrbit-macOS.dmg
 
