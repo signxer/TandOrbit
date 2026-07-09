@@ -25,33 +25,23 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
 
       - name: Run tests
         run: python -m pytest tests/ -v
 
-      - name: Build macOS app
-        run: pyinstaller tandorbit.spec --noconfirm
-
-      - name: Fix bundle structure
-        run: python scripts/fix_bundle_for_codesign.py dist/TandOrbit.app
-
-      - name: Ad-hoc sign
-        run: codesign --force --sign - dist/TandOrbit.app
-
-      - name: Create DMG
+      - name: Package macOS release
         run: |
-          mkdir -p dist/dmg
-          cp -a dist/TandOrbit.app dist/dmg/
-          hdiutil create -volname "TandOrbit" -srcfolder dist/dmg -ov -format UDZO dist/TandOrbit-macOS.dmg
+          mkdir -p dist/TandOrbit-macOS
+          cp -r app plugins config resources dist/TandOrbit-macOS/
+          cp icon.png requirements.txt start.command dist/TandOrbit-macOS/
+          chmod +x dist/TandOrbit-macOS/start.command
+          cd dist && zip -r TandOrbit-macOS.zip TandOrbit-macOS/
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: TandOrbit-macOS
-          path: |
-            dist/TandOrbit.app
-            dist/TandOrbit-macOS.dmg
+          path: dist/TandOrbit-macOS.zip
 
   build-windows:
     name: Build Windows
@@ -107,7 +97,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/mac/TandOrbit-macOS.dmg
+            artifacts/mac/TandOrbit-macOS.zip
             TandOrbit-Windows.zip
           generate_release_notes: true
           draft: false

@@ -189,20 +189,10 @@ TandOrbit/
 
 ### macOS 安装说明
 
-由于应用未使用 Apple Developer 证书签名，首次打开需要手动授权：
+1. 下载 `TandOrbit-macOS.zip` 并解压
+2. 双击 `start.command` 启动（首次会自动安装 Python 依赖）
 
-1. 将 `TandOrbit.app` 拖入 `/Applications/` 目录
-2. **右键点击** TandOrbit → 选择「打开」
-3. 在弹窗中点击「打开」
-
-如果右键打开仍被阻止，尝试：
-
-```bash
-sudo xattr -cr /Applications/TandOrbit.app
-sudo xattr -d com.apple.provenance /Applications/TandOrbit.app
-```
-
-然后再次右键 → 打开。
+需要已安装 Python 3.11+（macOS 通常自带）。
 
 ### 从源码构建
 
