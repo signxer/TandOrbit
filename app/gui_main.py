@@ -216,14 +216,6 @@ def _main() -> None:
     tray = TrayIcon(tray_icon)
     tray.show()
 
-    # 启动提示（刘海屏可能看不到 tray 图标）
-    tray.showMessage(
-        "TandOrbit",
-        "已启动，点击菜单栏图标打开窗口",
-        QSystemTrayIcon.MessageIcon.Information,
-        3000,
-    )
-
     # 创建设置对话框
     settings_dialog = SettingsDialog(
         config_manager,
