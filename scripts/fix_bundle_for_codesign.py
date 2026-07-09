@@ -78,6 +78,11 @@ def fix_bundle(app_path: Path) -> None:
             dest.parent.mkdir(parents=True, exist_ok=True)
 
             try:
+                # 如果 Resources 里已有同名符号链接，先删除（避免自引用循环）
+                if dest.is_symlink():
+                    dest.unlink()
+                elif dest.exists():
+                    dest.unlink()
                 shutil.move(str(fpath), str(dest))
                 moved_count += 1
             except Exception as e:

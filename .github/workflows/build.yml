@@ -55,8 +55,7 @@ jobs:
       - name: Create DMG
         run: |
           mkdir -p dist/dmg
-          # Resolve all symlinks by copying with dereference
-          rsync -aL dist/TandOrbit.app dist/dmg/
+          cp -a dist/TandOrbit.app dist/dmg/
           hdiutil create -volname "TandOrbit" -srcfolder dist/dmg -ov -format UDZO dist/TandOrbit-macOS.dmg
 
       - name: Upload macOS artifact
