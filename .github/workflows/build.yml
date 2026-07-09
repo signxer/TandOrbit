@@ -62,7 +62,7 @@ jobs:
           brew install create-dmg
           create-dmg \
             --volname "TandOrbit" \
-            --volicon "icon.icns" \
+            --volicon "dmg_icon.icns" \
             --background "dmg_background.png" \
             --window-pos 200 120 \
             --window-size 640 440 \
