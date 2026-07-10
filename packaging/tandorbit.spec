@@ -1,22 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 """TandOrbit PyInstaller 打包配置（Mac / Windows 通用）"""
 
+import os
 import sys
-from pathlib import Path
 
+# SPECPATH 是 PyInstaller 内置变量，指向 spec 文件所在目录
 # spec 在 packaging/ 下，项目根目录是上一级
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = os.path.dirname(os.path.normpath(SPECPATH))
 
 block_cipher = None
 
 a = Analysis(
-    [str(ROOT / 'app' / 'main.py')],
-    pathex=[str(ROOT)],
+    [os.path.join(ROOT, 'app', 'main.py')],
+    pathex=[ROOT],
     binaries=[],
     datas=[
-        (str(ROOT / 'config'), 'config'),
-        (str(ROOT / 'resources'), 'resources'),
-        (str(ROOT / 'resources' / 'icon.png'), '.'),
+        (os.path.join(ROOT, 'config'), 'config'),
+        (os.path.join(ROOT, 'resources'), 'resources'),
+        (os.path.join(ROOT, 'resources', 'icon.png'), '.'),
     ],
     hiddenimports=[
         'PySide6.QtCore',
@@ -71,7 +72,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='TandOrbit.app',
-        icon=str(ROOT / 'resources' / 'icon.icns'),
+        icon=os.path.join(ROOT, 'resources', 'icon.icns'),
         bundle_identifier='com.tandorbit.app',
         info_plist={
             'CFBundleShortVersionString': '1.1.1',
