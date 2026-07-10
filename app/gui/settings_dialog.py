@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from app.config import AppConfig, ConfigManager
 from app.communication.discovery import DiscoveryService
+from app.gui.main_window import _COLORS, _FONT
 
 _MODIFIER_MAP = {
     Qt.Key.Key_Control: "Ctrl",
@@ -132,8 +133,130 @@ class SettingsDialog(QDialog):
         self._plugin_provider = plugin_provider
         self.setWindowTitle("TandOrbit 设置")
         self.setMinimumWidth(480)
+        self.setStyleSheet(self._build_stylesheet())
         self._setup_ui()
         self._load_values()
+
+    @staticmethod
+    def _build_stylesheet() -> str:
+        c = _COLORS
+        return f"""
+            QDialog {{
+                background: {c['window_bg']};
+                font-family: "{_FONT}";
+                font-size: 13px;
+                color: {c['text']};
+            }}
+            QTabWidget::pane {{
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                background: {c['window_bg']};
+                margin-top: -1px;
+            }}
+            QTabBar::tab {{
+                background: {c['bg']};
+                color: {c['text_secondary']};
+                border: 1px solid {c['border']};
+                border-bottom: none;
+                border-radius: 6px 6px 0 0;
+                padding: 6px 16px;
+                margin-right: 2px;
+                font-family: "{_FONT}";
+                font-size: 13px;
+            }}
+            QTabBar::tab:selected {{
+                background: {c['window_bg']};
+                color: {c['text']};
+                border-bottom: 1px solid {c['window_bg']};
+            }}
+            QGroupBox {{
+                font-weight: bold;
+                font-size: 13px;
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 8px;
+                margin-top: 12px;
+                padding: 16px 12px 8px 12px;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 6px;
+            }}
+            QLabel {{
+                color: {c['text']};
+                font-size: 13px;
+            }}
+            QLineEdit, QSpinBox {{
+                background: {c['bg']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 5px 8px;
+                font-family: "{_FONT}";
+                font-size: 13px;
+                selection-background-color: {c['checked_bg']};
+            }}
+            QLineEdit:focus, QSpinBox:focus {{
+                border-color: {c['checked_border']};
+            }}
+            QComboBox {{
+                background: {c['bg']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 5px 8px;
+                font-family: "{_FONT}";
+                font-size: 13px;
+                min-height: 20px;
+            }}
+            QComboBox:focus {{
+                border-color: {c['checked_border']};
+            }}
+            QComboBox::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 24px;
+                border: none;
+                border-left: 1px solid {c['border']};
+                border-radius: 0 6px 6px 0;
+            }}
+            QComboBox::down-arrow {{
+                image: none;
+                width: 0; height: 0;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                border-top: 5px solid {c['text_secondary']};
+                margin-right: 6px;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {c['bg']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                selection-background-color: {c['checked_bg']};
+                selection-color: {c['text']};
+                padding: 4px;
+            }}
+            QPushButton {{
+                background: {c['bg']};
+                color: {c['text']};
+                border: 1px solid {c['border']};
+                border-radius: 6px;
+                padding: 6px 18px;
+                font-family: "{_FONT}";
+                font-size: 13px;
+            }}
+            QPushButton:hover {{
+                background: {c['hover']};
+            }}
+            QPushButton:pressed {{
+                background: {c['checked_bg']};
+            }}
+            QFormLayout QLabel {{
+                font-size: 13px;
+            }}
+        """
 
     def _setup_ui(self) -> None:
         """构建界面"""
