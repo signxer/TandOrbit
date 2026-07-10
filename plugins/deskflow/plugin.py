@@ -94,8 +94,13 @@ class DeskflowPlugin(Plugin):
     async def start(self) -> bool:
         """启动 Deskflow"""
         if await self._is_running():
-            logger.info("Deskflow already running")
-            return True
+            logger.info("Deskflow already running, checking connection")
+            connected = await self.check_connection()
+            if connected:
+                self.event_bus.publish(
+                    DeskflowStatusChangedEvent(connected=True, source="Deskflow")
+                )
+            return connected
 
         cmd = self._get_start_command()
         logger.info(f"Starting Deskflow: {cmd}")
@@ -105,15 +110,20 @@ class DeskflowPlugin(Plugin):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            # 等待一下检查是否启动成功
+            # 等待进程启动
             await asyncio.sleep(2.0)
             if self._process.returncode is not None:
                 logger.error("Deskflow failed to start")
                 return False
-            self._connected = True
-            self.event_bus.publish(
-                DeskflowStatusChangedEvent(connected=True, source="Deskflow")
-            )
+            # 通过 SSL 连接验证实际连接状态
+            connected = await self.check_connection()
+            if connected:
+                logger.info("Deskflow SSL connection established")
+                self.event_bus.publish(
+                    DeskflowStatusChangedEvent(connected=True, source="Deskflow")
+                )
+            else:
+                logger.warning("Deskflow process running but SSL connection not ready")
             return True
         except Exception as e:
             logger.error(f"Failed to start Deskflow: {e}")
@@ -158,12 +168,18 @@ class DeskflowPlugin(Plugin):
         return await self.start()
 
     async def check_connection(self) -> bool:
-        """检查连接状态"""
-        # 尝试连接到 Deskflow 服务器端口
+        """检查 Deskflow SSL 连接状态"""
+        import ssl
         try:
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE  # Deskflow 自签证书
             reader, writer = await asyncio.wait_for(
-                asyncio.open_connection(self._server_host, self._server_port),
-                timeout=3.0,
+                asyncio.open_connection(
+                    self._server_host, self._server_port,
+                    ssl=ssl_ctx,
+                ),
+                timeout=5.0,
             )
             writer.close()
             await writer.wait_closed()

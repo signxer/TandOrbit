@@ -106,7 +106,7 @@ class AgentServer:
         if self._deskflow_plugin:
             try:
                 deskflow_running = await self._deskflow_plugin.health_check()
-                deskflow_connected = self._deskflow_plugin.connected
+                deskflow_connected = await self._deskflow_plugin.check_connection()
             except Exception:
                 pass
 

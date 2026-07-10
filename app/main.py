@@ -343,14 +343,16 @@ def main() -> None:
         win_timer.timeout.connect(_check_win_online)
         win_timer.start(5000)
 
-        # 定时检查 Deskflow 连接状态
+        # 定时检查 Deskflow SSL 连接状态
+        from PySide6.QtCore import Signal as QSignal, QObject
+
+        class _DeskflowChecker(QObject):
+            result = QSignal(bool)
+
+        deskflow_checker = _DeskflowChecker()
         deskflow_plugin = plugin_registry.get("deskflow")
 
-        def _check_deskflow():
-            if not deskflow_plugin:
-                return
-            connected = deskflow_plugin.connected
-            # 只在状态变化时更新 UI
+        def _on_deskflow_result(connected: bool) -> None:
             if connected != window._deskflow_status._online:
                 window.update_device_status(
                     mac_online=True,
@@ -358,9 +360,19 @@ def main() -> None:
                     deskflow_connected=connected,
                 )
 
+        deskflow_checker.result.connect(_on_deskflow_result)
+
+        def _check_deskflow():
+            if not deskflow_plugin:
+                return
+            async def _do_check():
+                connected = await deskflow_plugin.check_connection()
+                deskflow_checker.result.emit(connected)
+            worker.run_async(_do_check())
+
         deskflow_timer = QTimer()
         deskflow_timer.timeout.connect(_check_deskflow)
-        deskflow_timer.start(3000)
+        deskflow_timer.start(5000)
 
     worker.init_done.connect(on_init_done)
 
