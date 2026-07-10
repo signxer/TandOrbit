@@ -328,6 +328,10 @@ def main() -> None:
 
     tray.check_update_requested.connect(lambda: _do_check_update(silent=False))
 
+    # 启动后静默检查一次更新
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(3000, lambda: _do_check_update(silent=True))
+
     # 订阅事件
     event_bus.subscribe(ModeChangedEvent, on_mode_changed)
 
