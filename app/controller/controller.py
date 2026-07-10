@@ -109,6 +109,7 @@ class Controller:
         remote_client = self._get_win_client() if is_mac else self._get_mac_client()
         deskflow = self._get_plugin("deskflow")
         display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
+        ddc = self._get_plugin("ddc")
         audio = self._get_plugin("audio")
 
         # === 切换到 Mac 模式 ===
@@ -184,6 +185,7 @@ class Controller:
                     pipeline.add_action(DelayAction(10.0, "等待显示器配置生效"))
                 pipeline.add_action(LocalDisplaySleepPrimaryAction(
                     display_plugin=display,
+                    ddc_plugin=ddc,
                     primary_id=cfg.display.primary_id,
                 ))
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))

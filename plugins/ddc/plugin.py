@@ -22,6 +22,13 @@ from app.plugin_base import Plugin
 VCP_INPUT_SOURCE = 0x60
 VCP_BRIGHTNESS = 0x10
 VCP_CONTRAST = 0x12
+VCP_POWER_MODE = 0xD6
+
+# 电源模式
+POWER_ON = 0x01
+POWER_STANDBY = 0x02
+POWER_SUSPEND = 0x03
+POWER_OFF = 0x04
 
 # 输入源映射
 INPUT_SOURCE_MAP: dict[InputSource, int] = {
@@ -137,6 +144,14 @@ class DDCPlugin(Plugin):
         """设置显示器对比度（0-100）"""
         level = max(0, min(100, level))
         return await self._write_vcp(display_id, VCP_CONTRAST, level)
+
+    async def power_off(self, display_id: int) -> bool:
+        """关闭显示器（DDC/CI）"""
+        return await self._write_vcp(display_id, VCP_POWER_MODE, POWER_OFF)
+
+    async def power_on(self, display_id: int) -> bool:
+        """打开显示器（DDC/CI）"""
+        return await self._write_vcp(display_id, VCP_POWER_MODE, POWER_ON)
 
     # --- 内部方法 ---
 

@@ -474,29 +474,32 @@ class LoadMonitorProfileAction(Action):
 
 
 class LocalDisplaySleepPrimaryAction(Action):
-    """Windows 端禁用主屏（保留副屏给 Windows，主屏切到 Mac 输入源）"""
+    """Windows 端关闭主屏（保留副屏给 Windows，主屏切到 Mac 输入源）"""
 
-    def __init__(self, display_plugin: Any = None, primary_id: int = 1) -> None:
+    def __init__(self, display_plugin: Any = None, ddc_plugin: Any = None, primary_id: int = 1) -> None:
         super().__init__("Local display sleep primary")
         self._display = display_plugin
+        self._ddc = ddc_plugin
         self._primary_id = primary_id
 
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
-        if not self._display:
-            logger.warning("No display plugin for sleep primary")
-            return True
         try:
-            # 先用 MultiMonitorTool 断开主屏桌面
-            await self._display.disable_display(self._primary_id)
-            # 再用 SC_MONITORPOWER 物理关闭所有屏幕，触发信号源切换
+            # 优先用 DDC/CI 关闭主屏（只关主屏，不影响副屏）
+            if self._ddc:
+                ok = await self._ddc.power_off(self._primary_id)
+                if ok:
+                    logger.info(f"Display {self._primary_id} off via DDC/CI")
+                    return True
+            # 降级：MultiMonitorTool 断开 + SC_MONITORPOWER
+            if self._display:
+                await self._display.disable_display(self._primary_id)
             import ctypes
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
             await asyncio.sleep(2.0)
-            # 唤醒副屏（主屏已断开，不会被唤醒）
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
-            logger.info(f"Windows display {self._primary_id} disabled and off")
+            logger.info(f"Display {self._primary_id} off via SC_MONITORPOWER")
             return True
         except Exception as e:
             logger.warning(f"Local display sleep error: {e}")
