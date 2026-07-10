@@ -266,6 +266,12 @@ def main() -> None:
                 win_online=True,
                 deskflow_connected=False,
             )
+        elif peer["role"] == "mac":
+            window.update_device_status(
+                mac_online=True,
+                win_online=True,
+                deskflow_connected=False,
+            )
         # 通知设置对话框刷新对端信息（如果打开的话）
         settings_dialog.refresh_remote_info()
 
