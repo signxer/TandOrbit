@@ -364,10 +364,10 @@ class AgentServer:
             if hasattr(self, "_state_manager") and self._state_manager:
                 self._state_manager.force_set(mode)
                 logger.info(f"Mode synced from remote: {mode_name}")
-            # 收到模式变更后唤醒本机显示器
-            if platform.system() == "Windows":
+            # 只在本机需要显示时才唤醒显示器
+            if platform.system() == "Windows" and mode != Mode.MAC:
                 await self._wake_displays()
-            else:
+            elif platform.system() == "Darwin" and mode != Mode.WINDOWS:
                 await self._wake_mac_displays()
             # 如果是 Mac 端收到，转发到 Windows Agent
             await self._forward_mode_to_windows(mode_name)
