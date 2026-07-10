@@ -364,9 +364,10 @@ class AgentServer:
             if hasattr(self, "_state_manager") and self._state_manager:
                 self._state_manager.force_set(mode)
                 logger.info(f"Mode synced from remote: {mode_name}")
-            # 只在本机需要显示时才唤醒显示器
-            if platform.system() == "Windows" and mode != Mode.MAC:
-                await self._wake_displays()
+            # Windows 端：执行显示器切换
+            if platform.system() == "Windows":
+                await self._apply_display_mode(mode)
+            # Mac 端：唤醒显示器
             elif platform.system() == "Darwin" and mode != Mode.WINDOWS:
                 await self._wake_mac_displays()
             # 如果是 Mac 端收到，转发到 Windows Agent
@@ -379,6 +380,38 @@ class AgentServer:
                 AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
+
+    async def _apply_display_mode(self, mode: Mode) -> None:
+        """根据模式加载对应的显示器配置"""
+        import os
+        from app.config import ConfigManager
+        cfg = ConfigManager().load()
+        tool = cfg.tools.monitor_switcher_path
+
+        if mode == Mode.WINDOWS and cfg.display.profile_extend:
+            profile = cfg.display.profile_extend
+        elif mode == Mode.SHARE and cfg.display.profile_clone:
+            profile = cfg.display.profile_clone
+        else:
+            # Mac 模式或其他：关屏
+            await self._wake_displays()
+            return
+
+        if profile and os.path.exists(profile):
+            import asyncio
+            try:
+                cmd = f'"{tool}" -load:"{profile}"'
+                proc = await asyncio.create_subprocess_shell(
+                    cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await asyncio.wait_for(proc.communicate(), timeout=15.0)
+                logger.info(f"Loaded display profile: {profile}")
+            except Exception as e:
+                logger.warning(f"Failed to load display profile: {e}")
+        else:
+            await self._wake_displays()
 
     async def _wake_displays(self) -> None:
         """唤醒 Windows 显示器"""
