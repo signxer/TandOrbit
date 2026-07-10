@@ -102,8 +102,8 @@ class DeskflowPlugin(Plugin):
                 )
             return connected
 
-        # macOS client mode: write server address to Deskflow config before starting
-        if platform.system() == "Darwin" and not self._is_server:
+        # client mode: write server address to Deskflow config before starting
+        if not self._is_server:
             self._write_client_config()
 
         cmd = self._get_start_command()
@@ -195,9 +195,28 @@ class DeskflowPlugin(Plugin):
 
     # --- 内部方法 ---
 
+    def _get_conf_path(self) -> Path:
+        """获取 Deskflow 配置文件路径"""
+        system = platform.system()
+        if system == "Darwin":
+            return Path.home() / "Library" / "Deskflow" / "Deskflow.conf"
+        elif system == "Windows":
+            return Path.home() / "AppData" / "Roaming" / "Deskflow" / "Deskflow.conf"
+        return Path.home() / ".config" / "Deskflow" / "Deskflow.conf"
+
+    def _get_core_path(self) -> str:
+        """获取 deskflow-core 可执行文件路径"""
+        system = platform.system()
+        if system == "Darwin":
+            return "/Applications/Deskflow.app/Contents/MacOS/deskflow-core"
+        elif system == "Windows":
+            exe = getattr(self, "_exe_path", "deskflow.exe")
+            return str(Path(exe).parent / "deskflow-core.exe")
+        return "deskflow-core"
+
     def _write_client_config(self) -> None:
-        """写入 client/remoteHost 到 Deskflow 配置文件（macOS QSettings 格式）"""
-        conf_path = Path.home() / "Library" / "Deskflow" / "Deskflow.conf"
+        """写入 client/remoteHost 到 Deskflow 配置文件（QSettings 格式）"""
+        conf_path = self._get_conf_path()
         if not conf_path.exists():
             return
         lines = conf_path.read_text().splitlines()
@@ -241,7 +260,8 @@ class DeskflowPlugin(Plugin):
             if self._is_server:
                 return f'start "" "{exe}"'
             else:
-                return f'start "" "{exe}" --client {self._server_host}'
+                core = self._get_core_path()
+                return f'start "" "{core}" client'
         return "deskflow"
 
     def _get_stop_command(self) -> str:
@@ -250,20 +270,19 @@ class DeskflowPlugin(Plugin):
         if system == "Darwin":
             return 'pkill -f "Deskflow|deskflow-core"'
         elif system == "Windows":
-            return "taskkill /IM Deskflow.exe /F"
+            return 'taskkill /IM Deskflow.exe /F & taskkill /IM deskflow-core.exe /F'
         return "pkill deskflow"
 
     async def _is_running(self) -> bool:
         """检查 Deskflow 是否在运行"""
         system = platform.system()
-        exe = getattr(self, "_exe_path", "deskflow.exe")
-        exe_name = Path(exe).name
         if system == "Darwin":
-            cmd = f'pgrep -f "{exe_name}"'
+            cmd = 'pgrep -f "Deskflow|deskflow-core"'
         elif system == "Windows":
-            cmd = f'tasklist /FI "IMAGENAME eq {exe_name}" /NH'
+            cmd = 'tasklist /FI "IMAGENAME eq deskflow-core.exe" /NH'
         else:
-            cmd = f"pgrep -f {exe_name}"
+            exe = getattr(self, "_exe_path", "deskflow.exe")
+            cmd = f"pgrep -f {Path(exe).name}"
 
         try:
             proc = await asyncio.create_subprocess_shell(
