@@ -1,8 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""TandOrbit PyInstaller 打包配置
-
-Mac 端打包配置。Windows 端使用 tandorbit_agent.spec。
-"""
+"""TandOrbit PyInstaller 打包配置（Mac / Windows 通用）"""
 
 import sys
 from pathlib import Path

@@ -184,16 +184,15 @@ class WakeMacAction(Action):
 
 
 class ConfigureDisplaysForMac(Action):
-    """配置显示器：双屏给 Mac"""
+    """配置显示器：唤醒全部 Mac 显示器（显示器自动识别信号源）"""
 
-    def __init__(self, mac_display_plugin: Any = None, win_client: Any = None) -> None:
+    def __init__(self, mac_display_plugin: Any = None) -> None:
         super().__init__("Configure displays for Mac mode")
         self._mac_display = mac_display_plugin
-        self._win_client = win_client
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Mac mode")
-        # Mac 端：唤醒显示器 + 扩展桌面
+        # 唤醒 Mac 显示器，显示器会自动识别信号源
         if platform.system() == "Darwin":
             try:
                 proc = await asyncio.create_subprocess_shell(
@@ -205,23 +204,6 @@ class ConfigureDisplaysForMac(Action):
                 logger.info("Mac displays woken up")
             except Exception as e:
                 logger.warning(f"Mac display wake error: {e}")
-
-        if self._mac_display:
-            try:
-                await self._mac_display.set_extend()
-                # 重新连接之前断开的副屏
-                await self._mac_display.enable_display(2)
-            except Exception as e:
-                logger.warning(f"Mac display config error: {e}")
-
-        # Windows 端：关闭所有显示器（Mac 驱动）
-        if self._win_client:
-            try:
-                health = await self._win_client.health_check()
-                if health:
-                    await self._win_client.disable_display(2)
-            except Exception:
-                pass  # Windows 可能不在线
 
         return True
 
@@ -275,28 +257,34 @@ class ConfigureDisplaysForWindows(Action):
 
 
 class ConfigureDisplaysForShare(Action):
-    """配置显示器：一屏 Mac，一屏 Windows"""
+    """配置显示器：Mac 保留主屏，关闭副屏（让 Windows 接管）"""
 
-    def __init__(self, mac_display_plugin: Any = None, win_client: Any = None) -> None:
+    def __init__(self, mac_display_plugin: Any = None) -> None:
         super().__init__("Configure displays for Share mode")
         self._mac_display = mac_display_plugin
-        self._win_client = win_client
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Share mode")
-        # Mac：主屏留给自己，副屏禁用
+        # 唤醒 Mac 主屏
+        if platform.system() == "Darwin":
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    "caffeinate -u -t 1",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+                logger.info("Mac displays woken up")
+            except Exception as e:
+                logger.warning(f"Mac display wake error: {e}")
+
+        # 关闭 Mac 副屏（screen_off 而非 disable，不断开连接）
         if self._mac_display:
             try:
-                await self._mac_display.disable_display(2)
+                await self._mac_display.screen_off(2)
+                logger.info("Mac secondary display screen off")
             except Exception as e:
-                logger.warning(f"Mac display error: {e}")
-
-        # Windows：启用主屏
-        if self._win_client:
-            try:
-                await self._win_client.enable_display(1)
-            except Exception as e:
-                logger.warning(f"Windows display error: {e}")
+                logger.warning(f"Mac secondary display off error: {e}")
 
         return True
 
@@ -419,6 +407,60 @@ class LocalDisplayShareAction(Action):
             return True
         except Exception as e:
             logger.warning(f"Local display share error: {e}")
+            return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
+class SetWindowsDuplicateAction(Action):
+    """Windows 端切换到复制模式（双屏显示相同内容）"""
+
+    def __init__(self, display_plugin: Any = None) -> None:
+        super().__init__("Set Windows duplicate mode")
+        self._display = display_plugin
+
+    async def execute(self) -> bool:
+        if not self._display:
+            logger.warning("No display plugin available")
+            return True
+        try:
+            ok = await self._display.set_duplicate(1, 2)
+            if ok:
+                logger.info("Windows switched to duplicate mode")
+            else:
+                logger.warning("Failed to set Windows duplicate mode")
+            return ok
+        except Exception as e:
+            logger.warning(f"Set Windows duplicate error: {e}")
+            return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
+class LocalDisplaySleepPrimaryAction(Action):
+    """Windows 端让主屏休眠（保留副屏给 Windows，主屏触发硬件信号切换给 Mac）
+
+    DP 连接无法真正断开，只能通过 Win32 API 让显示器休眠，
+    触发显示器自动切换到另一个信号源。
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Local display sleep primary")
+
+    async def execute(self) -> bool:
+        if platform.system() != "Windows":
+            return True
+        try:
+            import ctypes
+            # SC_MONITORPOWER = 0xF170, HWND_BROADCAST = 0xFFFF, WM_SYSCOMMAND = 0x0112
+            # 2 = MONITOR_OFF
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            logger.info("Windows primary display put to sleep")
+            return True
+        except Exception as e:
+            logger.warning(f"Local display sleep error: {e}")
             return False
 
     async def rollback(self) -> bool:

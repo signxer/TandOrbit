@@ -1,11 +1,11 @@
 @echo off
 REM ============================================
-REM  TandOrbit Windows Agent - 开机自启安装脚本
+REM  TandOrbit Windows 端 - 开机自启安装脚本
 REM  以管理员身份运行此脚本
 REM ============================================
 
 echo ========================================
-echo   TandOrbit Windows Agent 自启安装
+echo   TandOrbit Windows 端自启安装
 echo ========================================
 echo.
 
@@ -20,12 +20,12 @@ if %errorLevel% neq 0 (
 
 REM 获取脚本所在目录
 set SCRIPT_DIR=%~dp0
-set AGENT_PATH=%SCRIPT_DIR%TandOrbitAgent.exe
+set AGENT_PATH=%SCRIPT_DIR%TandOrbit.exe
 
-REM 检查 Agent 是否存在
+REM 检查程序是否存在
 if not exist "%AGENT_PATH%" (
-    echo [ERROR] 找不到 TandOrbitAgent.exe
-    echo 请将此脚本放在 TandOrbitAgent.exe 同一目录下
+    echo [ERROR] 找不到 TandOrbit.exe
+    echo 请将此脚本放在 TandOrbit.exe 同一目录下
     pause
     exit /b 1
 )
@@ -33,11 +33,11 @@ if not exist "%AGENT_PATH%" (
 echo [1/3] 创建 Windows 计划任务...
 
 REM 删除已有的任务（如果存在）
-schtasks /delete /tn "TandOrbitAgent" /f >nul 2>&1
+schtasks /delete /tn "TandOrbit" /f >nul 2>&1
 
 REM 创建开机自启任务
 schtasks /create ^
-    /tn "TandOrbitAgent" ^
+    /tn "TandOrbit" ^
     /tr "\"%AGENT_PATH%\"" ^
     /sc onlogon ^
     /rl highest ^
@@ -55,9 +55,9 @@ echo.
 echo [2/3] 配置防火墙规则...
 
 REM 添加防火墙入站规则
-netsh advfirewall firewall delete rule name="TandOrbit Agent" >nul 2>&1
+netsh advfirewall firewall delete rule name="TandOrbit" >nul 2>&1
 netsh advfirewall firewall add rule ^
-    name="TandOrbit Agent" ^
+    name="TandOrbit" ^
     dir=in ^
     action=allow ^
     protocol=tcp ^
@@ -72,7 +72,7 @@ if %errorLevel% equ 0 (
 )
 
 echo.
-echo [3/3] 启动 Agent...
+echo [3/3] 启动 TandOrbit...
 
 start "" "%AGENT_PATH%"
 
@@ -80,7 +80,7 @@ echo.
 echo ========================================
 echo   安装完成！
 echo.
-echo   TandOrbit Agent 已配置为：
+echo   TandOrbit 已配置为：
 echo   - 开机自动启动
 echo   - 监听端口 5000
 echo   - 防火墙已放行

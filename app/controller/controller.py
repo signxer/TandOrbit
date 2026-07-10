@@ -24,10 +24,10 @@ from app.scheduler.actions import (
     DisplaySleepAction,
     LocalDisplayOffAction,
     LocalDisplayOnAction,
-    LocalDisplayShareAction,
+    LocalDisplaySleepPrimaryAction,
     RestartDeskflowAction,
     SetAudioMacAction,
-    SetAudioWindowsAction,
+    SetWindowsDuplicateAction,
     StopDeskflowAction,
     WakeWindowsAction,
 )
@@ -55,7 +55,8 @@ class Controller:
         self._scheduler = scheduler
         self._plugins = plugin_registry
         self._config = config_manager
-        self._win_client: MacClient | None = None
+        self._win_client: MacClient | None = None  # Mac → Windows
+        self._mac_client: MacClient | None = None  # Windows → Mac
 
     @property
     def current_mode(self) -> Mode:
@@ -71,13 +72,22 @@ class Controller:
         return getattr(self, "_init_results", [])
 
     def _get_win_client(self) -> MacClient:
-        """获取或创建 Windows Agent 客户端"""
+        """获取或创建 Windows Agent 客户端（Mac → Windows）"""
         if self._win_client is None:
             cfg = self._config.config.windows
             self._win_client = MacClient(
                 host=cfg.host, port=cfg.port, timeout=cfg.timeout
             )
         return self._win_client
+
+    def _get_mac_client(self) -> MacClient:
+        """获取或创建 Mac Agent 客户端（Windows → Mac）"""
+        if self._mac_client is None:
+            cfg = self._config.config
+            self._mac_client = MacClient(
+                host=cfg.mac.host, port=cfg.mac.port, timeout=cfg.windows.timeout
+            )
+        return self._mac_client
 
     def _get_plugin(self, name: str) -> Any:
         """获取插件实例"""
@@ -94,7 +104,8 @@ class Controller:
         )
 
         cfg = self._config.config
-        win_client = self._get_win_client() if is_mac else None
+        # Mac 端用 win_client 调 Windows，Windows 端用 mac_client 调 Mac
+        remote_client = self._get_win_client() if is_mac else self._get_mac_client()
         deskflow = self._get_plugin("deskflow")
         display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
         audio = self._get_plugin("audio")
@@ -102,12 +113,10 @@ class Controller:
         # === 切换到 Mac 模式 ===
         if to_mode == Mode.MAC:
             if is_mac:
-                # Mac 端：配置显示器（远程禁用 Windows 副屏）
+                # Mac 端：唤醒全部显示器 + 停止 Deskflow + 切音频
                 pipeline.add_action(
-                    ConfigureDisplaysForMac(mac_display_plugin=display, win_client=win_client)
+                    ConfigureDisplaysForMac(mac_display_plugin=display)
                 )
-                # 等待显示器切换信号源
-                pipeline.add_action(DelayAction(2.0, "显示器切换信号源"))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
                 if audio:
                     pipeline.add_action(SetAudioMacAction(
@@ -132,7 +141,7 @@ class Controller:
                 ))
                 pipeline.add_action(
                     ConfigureDisplaysForWindows(
-                        mac_display_plugin=display, win_client=win_client
+                        mac_display_plugin=display, win_client=remote_client
                     )
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
@@ -144,7 +153,7 @@ class Controller:
         # === 切换到共享模式 ===
         elif to_mode == Mode.SHARE:
             if is_mac:
-                # Mac 端：唤醒 Windows + 配置显示器
+                # Mac 端：唤醒 Windows + 唤醒全部显示器
                 if from_mode == Mode.MAC:
                     pipeline.add_action(WakeWindowsAction(
                         mac_address=cfg.windows.mac_address,
@@ -153,16 +162,12 @@ class Controller:
                         timeout=60.0,
                     ))
                 pipeline.add_action(
-                    ConfigureDisplaysForShare(
-                        mac_display_plugin=display, win_client=win_client
-                    )
+                    ConfigureDisplaysForShare(mac_display_plugin=display)
                 )
             else:
-                # Windows 端：保留选定显示器，关闭其他（留给 Mac）
-                pipeline.add_action(LocalDisplayShareAction(
-                    display_plugin=display,
-                    keep_display_id=cfg.display.share_display_id,
-                ))
+                # Windows 端：先复制模式，再休眠主屏（保留副屏给 Windows）
+                pipeline.add_action(SetWindowsDuplicateAction(display_plugin=display))
+                pipeline.add_action(LocalDisplaySleepPrimaryAction())
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
         return pipeline
@@ -220,18 +225,9 @@ class Controller:
         for attempt in range(3):
             try:
                 if platform.system() == "Darwin":
-                    # Mac → Windows Agent
                     await self._get_win_client().set_mode(mode.name)
                 else:
-                    # Windows → Mac Agent（Mac 是权威状态源）
-                    cfg = self._config.config
-                    mac_host = cfg.deskflow.server_host
-                    async with __import__("httpx").AsyncClient(timeout=5.0) as client:
-                        resp = await client.post(
-                            f"http://{mac_host}:{cfg.windows.port}/api/mode/set",
-                            json={"mode": mode.name},
-                        )
-                        resp.raise_for_status()
+                    await self._get_mac_client().set_mode(mode.name)
                 return  # 成功则退出
             except Exception as e:
                 if attempt < 2:
@@ -306,4 +302,6 @@ class Controller:
         logger.info("Controller: shutting down system")
         if self._win_client:
             await self._win_client.close()
+        if self._mac_client:
+            await self._mac_client.close()
         await self._plugins.shutdown_all()

@@ -22,11 +22,13 @@ BROADCAST_MAGIC = "TandOrbit"
 class DiscoveryService:
     """局域网自动发现服务"""
 
-    def __init__(self, local_port: int = 5000) -> None:
+    def __init__(self, local_port: int = 5000, wol_nic: str = "", config_manager: Any = None) -> None:
         self._local_port = local_port
         self._local_host = self._get_local_ip()
+        self._local_mac = self._get_local_mac(wol_nic)
         self._local_name = platform.node()
         self._local_role = "mac" if platform.system() == "Darwin" else "windows"
+        self._config_manager = config_manager
         self._peer: dict[str, Any] | None = None
         self._callbacks: list[Callable[[dict[str, Any]], None]] = []
         self._running = False
@@ -62,15 +64,59 @@ class DiscoveryService:
         except Exception:
             return "127.0.0.1"
 
+    @staticmethod
+    def _get_local_mac(nic_name: str = "") -> str:
+        """获取指定网卡的 MAC 地址，nic_name 为空时自动选择活跃网卡"""
+        try:
+            import psutil
+            addrs = psutil.net_if_addrs()
+            if nic_name and nic_name in addrs:
+                for snic in addrs[nic_name]:
+                    if snic.family.name == "AF_LINK" and snic.address:
+                        return snic.address.upper()
+            # 未指定或未找到，取当前活跃网卡（与本机 IP 同网卡）
+            for name, snics in addrs.items():
+                if name.startswith(("lo", "utun", "awdl", "llw", "bridge", "vmenet")):
+                    continue
+                for snic in snics:
+                    if snic.family.name == "AF_LINK" and snic.address:
+                        return snic.address.upper()
+        except Exception:
+            pass
+        return ""
+
+    @staticmethod
+    def list_nics() -> list[dict[str, str]]:
+        """列出所有网卡（名称 + MAC 地址），供 UI 下拉选择"""
+        nics = []
+        try:
+            import psutil
+            for name, snics in psutil.net_if_addrs().items():
+                if name.startswith(("lo", "utun", "awdl", "llw", "vmenet")):
+                    continue
+                mac = ""
+                for snic in snics:
+                    if snic.family.name == "AF_LINK" and snic.address:
+                        mac = snic.address.upper()
+                        break
+                if mac:
+                    nics.append({"name": name, "mac": mac})
+        except Exception:
+            pass
+        return nics
+
     def _make_announcement(self) -> bytes:
         """构建广播消息"""
-        return json.dumps({
+        msg: dict[str, Any] = {
             "magic": BROADCAST_MAGIC,
             "role": self._local_role,
             "host": self._local_host,
             "port": self._local_port,
             "name": self._local_name,
-        }).encode()
+        }
+        if self._local_mac:
+            msg["mac_address"] = self._local_mac
+        return json.dumps(msg).encode()
 
     def _run_broadcast(self) -> None:
         """定时广播本机信息"""
@@ -122,16 +168,38 @@ class DiscoveryService:
         host = msg.get("host", "")
         port = msg.get("port", 5000)
         name = msg.get("name", "")
+        mac_address = msg.get("mac_address", "")
         if not host:
             return
         # 更新对端信息
-        peer = {"role": role, "host": host, "port": port, "name": name}
+        peer = {"role": role, "host": host, "port": port, "name": name, "mac_address": mac_address}
         changed = self._peer is None or self._peer.get("host") != host
         self._peer = peer
         if changed:
-            logger.info(f"Peer discovered: {role} at {host}:{port} ({name})")
+            logger.info(f"Peer discovered: {role} at {host}:{port} ({name}) mac={mac_address}")
+            # 自动更新配置（对端信息）
+            if self._config_manager:
+                self._update_remote_config(role, host, port, mac_address)
             for cb in self._callbacks:
                 try:
                     cb(peer)
                 except Exception as e:
                     logger.error(f"Discovery callback error: {e}")
+
+    def _update_remote_config(self, role: str, host: str, port: int, mac_address: str) -> None:
+        """自动更新配置中的对端信息"""
+        try:
+            updates: dict[str, Any] = {}
+            if role == "windows":
+                updates["windows"] = {"host": host, "port": port}
+                if mac_address:
+                    updates["windows"]["mac_address"] = mac_address
+            elif role == "mac":
+                updates["mac"] = {"host": host, "port": port}
+                if mac_address:
+                    updates["mac"]["mac_address"] = mac_address
+            if updates:
+                self._config_manager.update(updates)
+                logger.info(f"Auto-updated config: {role} -> {host}:{port} mac={mac_address}")
+        except Exception as e:
+            logger.warning(f"Failed to auto-update config: {e}")

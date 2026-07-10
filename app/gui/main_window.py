@@ -119,7 +119,7 @@ class StatusIndicator(QLabel):
 
 
 class ModeButton(QPushButton):
-    """模式切换按钮（图标 + 文字的方块按钮）"""
+    """模式按钮（图标 + 文字的方块按钮，可作为状态指示器或切换按钮）"""
 
     _STYLE = """
         ModeButton {{
@@ -135,6 +135,16 @@ class ModeButton(QPushButton):
         ModeButton:checked {{
             border-color: {checked_border};
             background: {checked_bg};
+        }}
+    """.format(**_COLORS)
+
+    _STATUS_STYLE = """
+        ModeButton {{
+            border: 2px solid {checked_border};
+            border-radius: 10px;
+            background: {checked_bg};
+            padding: 12px 4px;
+            color: {text};
         }}
     """.format(**_COLORS)
 
@@ -169,6 +179,13 @@ class ModeButton(QPushButton):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setStyleSheet("background: transparent; border: none;")
         inner.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+    def set_status_only(self) -> None:
+        """设为纯状态指示器（不可点击）"""
+        self.setCheckable(False)
+        self.setEnabled(False)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.setStyleSheet(self._STATUS_STYLE)
 
 
 class MainWindow(QMainWindow):
@@ -250,7 +267,8 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(6)
 
-        # --- 模式切换按钮（横向排列） ---
+        # --- 模式指示器 / 切换按钮（横向排列） ---
+        local_mode = Mode.MAC if sys.platform == "darwin" else Mode.WINDOWS
         self._mode_buttons: dict[Mode, ModeButton] = {}
         self._mode_group = QButtonGroup(self)
         self._mode_group.setExclusive(True)
@@ -259,7 +277,10 @@ class MainWindow(QMainWindow):
         btn_row.setSpacing(12)
         for mode, (svg, text) in _MODE_CONFIG.items():
             btn = ModeButton(text, mode, svg, self._base_dir)
-            btn.clicked.connect(lambda checked, m=mode: self._on_mode_clicked(m))
+            if mode == local_mode:
+                btn.set_status_only()
+            else:
+                btn.clicked.connect(lambda checked, m=mode: self._on_mode_clicked(m))
             self._mode_buttons[mode] = btn
             self._mode_group.addButton(btn)
             btn_row.addWidget(btn)

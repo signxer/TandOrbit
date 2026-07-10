@@ -80,10 +80,10 @@ pip install -e ".[dev]"
 python -m app.main
 ```
 
-### Windows 端（Agent）
+### Windows 端
 
 ```bash
-python -m app.agent_main
+python -m app.main
 ```
 
 ### 快捷键
@@ -149,8 +149,7 @@ TandOrbit/
 │   ├── events/           # 事件总线
 │   ├── state/            # 状态机
 │   ├── communication/    # 双机通信
-│   ├── main.py           # Mac 端入口
-│   └── agent_main.py     # Windows 端入口
+│   └── main.py           # GUI 入口（Mac + Windows）
 ├── plugins/
 │   ├── betterdisplay/    # macOS 显示器控制
 │   ├── multimonitortool/ # Windows 显示器控制
@@ -201,7 +200,7 @@ TandOrbit/
 pyinstaller packaging/tandorbit.spec --noconfirm
 
 # Windows
-pyinstaller packaging/tandorbit_agent.spec --noconfirm
+pyinstaller packaging/tandorbit.spec --noconfirm
 ```
 
 ### GitHub Actions 自动构建

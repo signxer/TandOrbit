@@ -97,6 +97,7 @@ class AppConfig(BaseModel):
     audio: AudioConfig = Field(default_factory=AudioConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
+    wol_nic: str = ""  # 本机 WoL 网卡名，如 en0 / Ethernet
     log_level: str = "INFO"
     log_dir: str = "logs"
     log_retention_days: int = 30

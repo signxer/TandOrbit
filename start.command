@@ -7,4 +7,4 @@ if ! python3 -c "import PySide6" 2>/dev/null; then
     python3 -m pip install -r requirements.txt --quiet
 fi
 
-python3 -m app.gui_main
+python3 -m app.main

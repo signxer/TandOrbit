@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import AppConfig, ConfigManager
+from app.communication.discovery import DiscoveryService
 
 _MODIFIER_MAP = {
     Qt.Key.Key_Control: "Ctrl",
@@ -166,51 +167,87 @@ class SettingsDialog(QDialog):
 
         is_mac = platform.system() == "Darwin"
 
-        # 本机服务端口（两边都有）
-        local_group = QGroupBox("本机服务")
+        # --- 本机配置（可编辑） ---
+        local_group = QGroupBox("本机")
         local_form = QFormLayout(local_group)
         self._local_port = QSpinBox()
         self._local_port.setRange(1, 65535)
         local_form.addRow("监听端口:", self._local_port)
+
+        # WoL 网卡下拉
+        self._wol_nic = QComboBox()
+        self._wol_nic.setMinimumWidth(220)
+        self._refresh_nics()
+        local_form.addRow("WoL 网卡:", self._wol_nic)
+        nic_hint = QLabel("选择支持网络唤醒的网卡，用于被对端 WoL 唤醒")
+        nic_hint.setStyleSheet("color: #888; font-size: 11px;")
+        local_form.addRow("", nic_hint)
         layout.addRow(local_group)
 
-        if is_mac:
-            # macOS: 配置远程 Windows Agent
-            remote_group = QGroupBox("Windows Agent（远程）")
-            remote_form = QFormLayout(remote_group)
-            self._win_host = QLineEdit()
-            self._win_mac = QLineEdit()
-            self._win_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
-            self._win_port = QSpinBox()
-            self._win_port.setRange(1, 65535)
-            remote_form.addRow("主机地址:", self._win_host)
-            remote_form.addRow("MAC 地址:", self._win_mac)
-            remote_form.addRow("端口:", self._win_port)
-            layout.addRow(remote_group)
-            # 兼容字段
-            self._mac_mac = QLineEdit()
-        else:
-            # Windows: 配置远程 Mac Agent
-            remote_group = QGroupBox("Mac（远程）")
-            remote_form = QFormLayout(remote_group)
-            self._mac_host = QLineEdit()
-            self._mac_mac = QLineEdit()
-            self._mac_mac.setPlaceholderText("AA:BB:CC:DD:EE:FF")
-            self._mac_port = QSpinBox()
-            self._mac_port.setRange(1, 65535)
-            remote_form.addRow("主机地址:", self._mac_host)
-            remote_form.addRow("MAC 地址:", self._mac_mac)
-            remote_form.addRow("端口:", self._mac_port)
-            hint = QLabel("填写 Mac 的 MAC 地址，用于从 Windows 唤醒 Mac")
-            hint.setStyleSheet("color: #888; font-size: 11px;")
-            remote_form.addRow("", hint)
-            layout.addRow(remote_group)
-            # 兼容字段
-            self._win_host = QLineEdit()
-            self._win_mac = QLineEdit()
-            self._win_port = QSpinBox()
+        # --- 对端信息（自动发现，只读） ---
+        remote_label = "Windows" if is_mac else "Mac"
+        remote_group = QGroupBox(f"对端（{remote_label} · 自动发现）")
+        remote_form = QFormLayout(remote_group)
+
+        self._remote_status = QLabel("●  等待发现...")
+        self._remote_status.setStyleSheet("color: #9E9E9E; font-size: 12px;")
+        remote_form.addRow("状态:", self._remote_status)
+
+        self._remote_host = QLabel("—")
+        self._remote_host.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        remote_form.addRow("主机地址:", self._remote_host)
+
+        self._remote_port = QLabel("—")
+        remote_form.addRow("端口:", self._remote_port)
+
+        self._remote_mac = QLabel("—")
+        self._remote_mac.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        remote_form.addRow("MAC 地址:", self._remote_mac)
+
+        layout.addRow(remote_group)
+
+        # 兼容字段（_save 中需要，但不在 UI 显示）
+        self._win_host = QLineEdit()
+        self._win_mac = QLineEdit()
+        self._win_port = QSpinBox()
+        self._mac_host = QLineEdit()
+        self._mac_mac = QLineEdit()
+        self._mac_port = QSpinBox()
 
         return widget
+
+    def _refresh_nics(self) -> None:
+        """刷新网卡列表"""
+        self._wol_nic.clear()
+        nics = DiscoveryService.list_nics()
+        for nic in nics:
+            self._wol_nic.addItem(f"{nic['name']}  ({nic['mac']})", nic["name"])
+
+    def refresh_remote_info(self) -> None:
+        """刷新对端信息（由 discovery 回调触发）"""
+        cfg = self._config_manager.config
+        is_mac = platform.system() == "Darwin"
+        if is_mac:
+            host = cfg.windows.host
+            port = cfg.windows.port
+            mac = cfg.windows.mac_address
+        else:
+            host = cfg.mac.host
+            port = cfg.mac.port
+            mac = cfg.mac.mac_address
+
+        if host and host != "192.168.1.100":
+            self._remote_status.setText("●  已发现")
+            self._remote_status.setStyleSheet("color: #4CAF50; font-size: 12px;")
+            self._remote_host.setText(host)
+            self._remote_port.setText(str(port))
+            self._remote_mac.setText(mac or "（未广播）")
+        else:
+            self._remote_status.setText("●  等待发现...")
+            self._remote_status.setStyleSheet("color: #9E9E9E; font-size: 12px;")
+            self._remote_host.setText("—")
+            self._remote_port.setText("—")
+            self._remote_mac.setText("—")
 
     def _create_display_tab(self) -> QWidget:
         """显示器配置标签页"""
@@ -359,14 +396,17 @@ class SettingsDialog(QDialog):
         is_mac = platform.system() == "Darwin"
         if is_mac:
             self._local_port.setValue(cfg.mac.port)
-            self._win_host.setText(cfg.windows.host)
-            self._win_mac.setText(cfg.windows.mac_address)
-            self._win_port.setValue(cfg.windows.port)
         else:
             self._local_port.setValue(cfg.windows.port)
-            self._mac_host.setText(cfg.mac.host)
-            self._mac_mac.setText(cfg.mac.mac_address)
-            self._mac_port.setValue(cfg.mac.port)
+
+        # WoL 网卡
+        if cfg.wol_nic:
+            idx = self._wol_nic.findData(cfg.wol_nic)
+            if idx >= 0:
+                self._wol_nic.setCurrentIndex(idx)
+
+        # 对端信息（自动发现）
+        self.refresh_remote_info()
         self._df_host.setText(cfg.deskflow.server_host)
         self._df_port.setValue(cfg.deskflow.server_port)
         self._df_client.setText(cfg.deskflow.client_name)
@@ -473,28 +513,15 @@ class SettingsDialog(QDialog):
         share_display_id = int(self._share_display.currentData() or self._share_display.currentText() or 2)
         is_mac = platform.system() == "Darwin"
 
+        # 本机端口
         if is_mac:
-            mac_config: dict[str, Any] = {
-                "port": self._local_port.value(),
-            }
-            windows_config: dict[str, Any] = {
-                "host": self._win_host.text(),
-                "mac_address": self._win_mac.text(),
-                "port": self._win_port.value(),
-            }
+            local_config: dict[str, Any] = {"mac": {"port": self._local_port.value()}}
         else:
-            windows_config = {
-                "port": self._local_port.value(),
-            }
-            mac_config = {
-                "host": self._mac_host.text(),
-                "mac_address": self._mac_mac.text(),
-                "port": self._mac_port.value(),
-            }
+            local_config = {"windows": {"port": self._local_port.value()}}
 
         updates = {
-            "windows": windows_config,
-            "mac": mac_config,
+            **local_config,
+            "wol_nic": self._wol_nic.currentData() or "",
             "display": {
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,
@@ -515,9 +542,6 @@ class SettingsDialog(QDialog):
                 "switch_share": self._hk_share.text(),
             },
         }
-
-        if mac_config:
-            updates["mac"] = mac_config
 
         if platform.system() != "Darwin":
             updates["tools"] = {

@@ -34,9 +34,7 @@ dev = [
 ]
 
 [project.scripts]
-tandorbit = "app.gui_main:main"
-tandorbit-mac = "app.main:main"
-tandorbit-agent = "app.agent_main:main"
+tandorbit = "app.main:main"
 
 [tool.ruff]
 target-version = "py311"

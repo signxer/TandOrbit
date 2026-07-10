@@ -92,17 +92,24 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     )
 
 
-def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager) -> None:
-    """启动 Mac Agent Server（权威模式状态源）"""
+def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager, plugin_registry: PluginRegistry) -> None:
+    """启动 Agent Server（Mac: 权威模式状态源; Windows: 接收指令）"""
     import threading
 
     import uvicorn
 
     from app.communication.agent_server import AgentServer
 
-    port = config.mac.port
+    is_mac = sys.platform == "darwin"
+    port = config.mac.port if is_mac else config.windows.port
     server = AgentServer(host="0.0.0.0", port=port)
     server.set_state_manager(state_manager)
+
+    # 注入插件，使 API 端点可用
+    display = plugin_registry.get("betterdisplay") if is_mac else plugin_registry.get("multimonitortool")
+    deskflow = plugin_registry.get("deskflow")
+    audio = plugin_registry.get("audio")
+    server.set_plugins(display=display, deskflow=deskflow, audio=audio)
 
     app = server.create_app()
 
@@ -113,7 +120,7 @@ def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager
         loop.run_until_complete(uvicorn.Server(uv_config).serve())
 
     threading.Thread(target=_run, daemon=True).start()
-    logger.info(f"Mac Agent Server starting on port {port}")
+    logger.info(f"Agent Server starting on port {port}")
 
 
 def main() -> None:
@@ -141,12 +148,19 @@ def main() -> None:
     scheduler = Scheduler(event_bus)
     plugin_registry = PluginRegistry(event_bus)
 
-    # 注册插件
-    plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
+    # 注册插件（按平台区分）
     plugin_registry.register(DeskflowPlugin(event_bus, config.deskflow.model_dump()))
-    plugin_registry.register(WoLPlugin(event_bus))
     plugin_registry.register(DDCPlugin(event_bus))
-    plugin_registry.register(ClipboardPlugin(event_bus))
+
+    if sys.platform == "darwin":
+        plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
+        plugin_registry.register(WoLPlugin(event_bus))
+        plugin_registry.register(ClipboardPlugin(event_bus))
+    else:
+        from plugins.audio.plugin import AudioPlugin
+        from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
+        plugin_registry.register(MultiMonitorToolPlugin(event_bus))
+        plugin_registry.register(AudioPlugin(event_bus, config.audio.model_dump()))
 
     # 创建控制器
     controller = Controller(
@@ -157,8 +171,8 @@ def main() -> None:
         config_manager=config_manager,
     )
 
-    # 启动 Mac Agent Server（权威模式状态源）
-    _start_agent_server(config, event_bus, state_manager)
+    # 启动 Agent Server（注入插件）
+    _start_agent_server(config, event_bus, state_manager, plugin_registry)
 
     # 创建 Qt 应用
     app = QApplication(sys.argv)
@@ -211,23 +225,23 @@ def main() -> None:
     discovery_signals = DiscoverySignals()
 
     from app.communication.discovery import DiscoveryService
-    discovery = DiscoveryService(local_port=config.mac.port)
+    discovery = DiscoveryService(
+        local_port=config.mac.port if sys.platform == "darwin" else config.windows.port,
+        wol_nic=config.wol_nic,
+        config_manager=config_manager,
+    )
 
     def _on_peer_discovered(peer):
-        """发现对端后在主线程更新 UI"""
+        """发现对端后在主线程更新 UI（config 已由 DiscoveryService 自动更新）"""
         logger.info(f"[UI] Peer discovered: {peer['role']} at {peer['host']}")
         if peer["role"] == "windows":
-            win_host = peer["host"]
-            cfg = config_manager.config
-            if cfg.windows.host != win_host:
-                config_manager.update({"windows": {"host": win_host}})
-                logger.info(f"Auto-discovered Windows at {win_host}, config updated")
-            # 更新状态灯
             window.update_device_status(
                 mac_online=True,
                 win_online=True,
                 deskflow_connected=False,
             )
+        # 通知设置对话框刷新对端信息（如果打开的话）
+        settings_dialog.refresh_remote_info()
 
     discovery_signals.peer_discovered.connect(_on_peer_discovered)
 
