@@ -488,8 +488,15 @@ class LocalDisplaySleepPrimaryAction(Action):
             logger.warning("No display plugin for sleep primary")
             return True
         try:
+            # 先用 MultiMonitorTool 断开主屏桌面
             await self._display.disable_display(self._primary_id)
-            logger.info(f"Windows display {self._primary_id} disabled")
+            # 再用 SC_MONITORPOWER 物理关闭所有屏幕，触发信号源切换
+            import ctypes
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            await asyncio.sleep(2.0)
+            # 唤醒副屏（主屏已断开，不会被唤醒）
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
+            logger.info(f"Windows display {self._primary_id} disabled and off")
             return True
         except Exception as e:
             logger.warning(f"Local display sleep error: {e}")
