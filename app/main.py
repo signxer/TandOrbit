@@ -155,7 +155,7 @@ def main() -> None:
     # 配置日志
     setup_logging(config.log_dir, config.log_level)
 
-    logger.info("TandOrbit Mac client starting...")
+    logger.info(f"TandOrbit starting on {'macOS' if sys.platform == 'darwin' else 'Windows'}...")
 
     # 防止 macOS 锁屏后挂起服务
     import subprocess
@@ -544,7 +544,7 @@ def main() -> None:
     window.mode_switch_requested.connect(on_mode_switch)
     tray.mode_switch_requested.connect(on_mode_switch)
 
-    logger.info("TandOrbit Mac client started")
+    logger.info(f"TandOrbit started on {'macOS' if sys.platform == 'darwin' else 'Windows'}")
     app.exec()
 
     # 清理
@@ -552,7 +552,7 @@ def main() -> None:
     worker.wait(1000)
     worker.stop()
     worker.wait(3000)
-    logger.info("TandOrbit Mac client stopped")
+    logger.info("TandOrbit stopped")
 
 
 if __name__ == "__main__":
