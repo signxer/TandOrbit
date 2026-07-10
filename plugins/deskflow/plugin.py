@@ -243,6 +243,11 @@ class DeskflowPlugin(Plugin):
             out.append(line)
         if in_client and not written:
             out.append(f"remoteHost={self._server_host}")
+            written = True
+        if not written:
+            out.append("")
+            out.append("[client]")
+            out.append(f"remoteHost={self._server_host}")
         conf_path.write_text("\n".join(out) + "\n")
         logger.info(f"Wrote client/remoteHost={self._server_host} to {conf_path}")
 
