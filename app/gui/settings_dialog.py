@@ -424,13 +424,25 @@ class SettingsDialog(QDialog):
             profile_form = QFormLayout(profile_group)
             self._profile_extend = QLineEdit()
             self._profile_extend.setPlaceholderText("扩展模式配置文件路径")
+            ext_btn = QPushButton("浏览...")
+            ext_btn.setFixedWidth(70)
+            ext_btn.clicked.connect(lambda: self._browse_xml(self._profile_extend))
+            ext_row = QHBoxLayout()
+            ext_row.addWidget(self._profile_extend)
+            ext_row.addWidget(ext_btn)
             self._profile_clone = QLineEdit()
             self._profile_clone.setPlaceholderText("复制模式配置文件路径")
+            clone_btn = QPushButton("浏览...")
+            clone_btn.setFixedWidth(70)
+            clone_btn.clicked.connect(lambda: self._browse_xml(self._profile_clone))
+            clone_row = QHBoxLayout()
+            clone_row.addWidget(self._profile_clone)
+            clone_row.addWidget(clone_btn)
             profile_hint = QLabel("使用 MonitorSwitcher.exe -save:profile.xml 保存当前配置")
             profile_hint.setStyleSheet("color: #888; font-size: 11px;")
             profile_hint.setWordWrap(True)
-            profile_form.addRow("扩展模式:", self._profile_extend)
-            profile_form.addRow("复制模式:", self._profile_clone)
+            profile_form.addRow("扩展模式:", ext_row)
+            profile_form.addRow("复制模式:", clone_row)
             profile_form.addRow("", profile_hint)
             layout.addRow(profile_group)
 
@@ -540,6 +552,16 @@ class SettingsDialog(QDialog):
 
         path, _ = QFileDialog.getOpenFileName(
             self, "选择可执行文件", "", "可执行文件 (*.exe);;所有文件 (*)"
+        )
+        if path:
+            target.setText(path)
+
+    def _browse_xml(self, target: QLineEdit) -> None:
+        """打开 XML 配置文件选择对话框"""
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择配置文件", "", "XML 文件 (*.xml);;所有文件 (*)"
         )
         if path:
             target.setText(path)
