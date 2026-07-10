@@ -173,8 +173,9 @@ def main() -> None:
     plugin_registry = PluginRegistry(event_bus)
 
     # 注册插件（按平台区分）
-    plugin_registry.register(DeskflowPlugin(event_bus, config.deskflow.model_dump()))
-    plugin_registry.register(DDCPlugin(event_bus))
+    deskflow_cfg = {**config.deskflow.model_dump(), **config.tools.model_dump()}
+    plugin_registry.register(DeskflowPlugin(event_bus, deskflow_cfg))
+    plugin_registry.register(DDCPlugin(event_bus, config.tools.model_dump()))
 
     if sys.platform == "darwin":
         plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
@@ -183,7 +184,7 @@ def main() -> None:
     else:
         from plugins.audio.plugin import AudioPlugin
         from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
-        plugin_registry.register(MultiMonitorToolPlugin(event_bus))
+        plugin_registry.register(MultiMonitorToolPlugin(event_bus, config.tools.model_dump()))
         plugin_registry.register(AudioPlugin(event_bus, config.audio.model_dump()))
 
     # 创建控制器
