@@ -41,7 +41,7 @@ class DeskflowPlugin(Plugin):
         system = platform.system()
         if system == "Darwin":
             cli_path = self.config.get("deskflow_path", "")
-            if cli_path:
+            if cli_path and not cli_path.endswith(".exe") and Path(cli_path).exists():
                 self._exe_path = cli_path
             elif Path("/Applications/Deskflow.app").exists():
                 self._exe_path = "Deskflow"
