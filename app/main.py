@@ -515,9 +515,13 @@ def main() -> None:
                 else:
                     _sync_mode_ui()
                 return
+        # 显示加载动画
+        window.set_mode_loading(mode, True)
         async def _switch_and_sync():
-            await controller.switch_mode(mode)
-            _mode_sync.sync.emit()
+            try:
+                await controller.switch_mode(mode)
+            finally:
+                _mode_sync.sync.emit()
         worker.run_async(_switch_and_sync())
 
     async def _wake_and_switch(mode: Mode):

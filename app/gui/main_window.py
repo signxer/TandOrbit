@@ -156,8 +156,11 @@ class ModeButton(QPushButton):
         base_dir: Path,
         parent: QWidget | None = None,
     ) -> None:
+        from PySide6.QtCore import QTimer
+
         super().__init__(parent)
         self.mode = mode
+        self._text = text
         self.setCheckable(True)
         self.setFixedSize(88, 80)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -174,11 +177,33 @@ class ModeButton(QPushButton):
         icon.setStyleSheet("background: transparent;")
         inner.addWidget(icon, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        label = QLabel(text)
-        label.setFont(QFont(_FONT, 11))
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label.setStyleSheet("background: transparent; border: none;")
-        inner.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._label = QLabel(text)
+        self._label.setFont(QFont(_FONT, 11))
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._label.setStyleSheet("background: transparent; border: none;")
+        inner.addWidget(self._label, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 加载动画
+        self._loading = False
+        self._dot_count = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._animate_dots)
+
+    def set_loading(self, loading: bool) -> None:
+        """设置加载状态"""
+        self._loading = loading
+        if loading:
+            self._dot_count = 0
+            self._timer.start(400)
+            self.setEnabled(False)
+        else:
+            self._timer.stop()
+            self._label.setText(self._text)
+            self.setEnabled(True)
+
+    def _animate_dots(self) -> None:
+        self._dot_count = (self._dot_count + 1) % 4
+        self._label.setText(self._text + "." * self._dot_count)
 
     def set_status_only(self) -> None:
         """设为纯状态指示器（保留 checkable 以配合 update_mode，但禁止点击切换）"""
@@ -345,6 +370,13 @@ class MainWindow(QMainWindow):
         """更新当前模式显示"""
         for m, btn in self._mode_buttons.items():
             btn.setChecked(m == mode)
+            btn.set_loading(False)
+
+    def set_mode_loading(self, mode: Mode, loading: bool) -> None:
+        """设置指定模式按钮的加载状态"""
+        btn = self._mode_buttons.get(mode)
+        if btn:
+            btn.set_loading(loading)
 
     def update_hotkeys(self, hotkeys: dict[str, str]) -> None:
         """更新快捷键提示"""
