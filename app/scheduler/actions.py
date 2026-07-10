@@ -374,7 +374,10 @@ class LocalDisplayOffAction(Action):
             return True
         try:
             import ctypes
-            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            # 多次发送关闭命令，防止 Windows 唤醒主显示器
+            for _ in range(5):
+                ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+                await asyncio.sleep(0.5)
             logger.info("All local displays off")
             return True
         except Exception as e:
