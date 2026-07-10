@@ -153,6 +153,36 @@ class DDCPlugin(Plugin):
         """打开显示器（DDC/CI VCP D6=1）"""
         return await self._write_vcp(display_id, VCP_POWER_MODE, 1)
 
+    async def power_off_monitor(self, monitor: str) -> bool:
+        """关闭指定显示器（使用完整 monitor 标识）"""
+        cmd = f'"{self._tool_path}" /SetValue "{monitor}" D6 5'
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            return proc.returncode == 0
+        except Exception as e:
+            logger.error(f"ControlMyMonitor power off error: {e}")
+            return False
+
+    async def power_on_monitor(self, monitor: str) -> bool:
+        """打开指定显示器（使用完整 monitor 标识）"""
+        cmd = f'"{self._tool_path}" /SetValue "{monitor}" D6 1'
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            return proc.returncode == 0
+        except Exception as e:
+            logger.error(f"ControlMyMonitor power on error: {e}")
+            return False
+
     # --- 内部方法 ---
 
     async def _read_vcp(self, display_id: int, vcp_code: int) -> int | None:
@@ -220,11 +250,6 @@ class DDCPlugin(Plugin):
         except Exception as e:
             logger.error(f"m1ddc write error: {e}")
             return False
-
-    @staticmethod
-    def _monitor_str(display_id: int) -> str:
-        """将数字 ID 转为 ControlMyMonitor 格式"""
-        return f"\\\\.\\DISPLAY{display_id}\\Monitor1"
 
     async def _windows_read_vcp(self, display_id: int, vcp_code: int) -> int | None:
         """Windows: 使用 ControlMyMonitor 读取 VCP 值"""

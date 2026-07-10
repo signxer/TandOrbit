@@ -476,21 +476,23 @@ class LoadMonitorProfileAction(Action):
 class LocalDisplaySleepPrimaryAction(Action):
     """Windows 端关闭主屏（保留副屏给 Windows，主屏切到 Mac 输入源）"""
 
-    def __init__(self, display_plugin: Any = None, ddc_plugin: Any = None, primary_id: int = 1) -> None:
+    def __init__(self, display_plugin: Any = None, ddc_plugin: Any = None,
+                 primary_id: int = 1, ddc_monitor: str = "") -> None:
         super().__init__("Local display sleep primary")
         self._display = display_plugin
         self._ddc = ddc_plugin
         self._primary_id = primary_id
+        self._ddc_monitor = ddc_monitor
 
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
         try:
             # 优先用 DDC/CI 关闭主屏（只关主屏，不影响副屏）
-            if self._ddc:
-                ok = await self._ddc.power_off(self._primary_id)
+            if self._ddc and self._ddc_monitor:
+                ok = await self._ddc.power_off_monitor(self._ddc_monitor)
                 if ok:
-                    logger.info(f"Display {self._primary_id} off via DDC/CI")
+                    logger.info(f"Display {self._ddc_monitor} off via DDC/CI")
                     return True
             # 降级：MultiMonitorTool 断开 + SC_MONITORPOWER
             if self._display:

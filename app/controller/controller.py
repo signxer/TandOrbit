@@ -186,7 +186,8 @@ class Controller:
                 pipeline.add_action(LocalDisplaySleepPrimaryAction(
                     display_plugin=display,
                     ddc_plugin=ddc,
-                    primary_id=cfg.display.ddc_primary_id,
+                    primary_id=cfg.display.primary_id,
+                    ddc_monitor=cfg.display.ddc_primary_monitor,
                 ))
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
