@@ -140,11 +140,14 @@ class SettingsDialog(QDialog):
     @staticmethod
     def _build_stylesheet() -> str:
         c = _COLORS
+        f = _FONT
         return f"""
+            * {{
+                font-family: "{f}";
+                font-size: 13px;
+            }}
             QDialog {{
                 background: {c['window_bg']};
-                font-family: "{_FONT}";
-                font-size: 13px;
                 color: {c['text']};
             }}
             QTabWidget::pane {{
@@ -161,8 +164,6 @@ class SettingsDialog(QDialog):
                 border-radius: 6px 6px 0 0;
                 padding: 6px 16px;
                 margin-right: 2px;
-                font-family: "{_FONT}";
-                font-size: 13px;
             }}
             QTabBar::tab:selected {{
                 background: {c['window_bg']};
@@ -171,7 +172,6 @@ class SettingsDialog(QDialog):
             }}
             QGroupBox {{
                 font-weight: bold;
-                font-size: 13px;
                 color: {c['text']};
                 border: 1px solid {c['border']};
                 border-radius: 8px;
@@ -185,7 +185,6 @@ class SettingsDialog(QDialog):
             }}
             QLabel {{
                 color: {c['text']};
-                font-size: 13px;
             }}
             QLineEdit, QSpinBox {{
                 background: {c['bg']};
@@ -193,12 +192,19 @@ class SettingsDialog(QDialog):
                 border: 1px solid {c['border']};
                 border-radius: 6px;
                 padding: 5px 8px;
-                font-family: "{_FONT}";
-                font-size: 13px;
                 selection-background-color: {c['checked_bg']};
             }}
             QLineEdit:focus, QSpinBox:focus {{
                 border-color: {c['checked_border']};
+            }}
+            QSpinBox::up-button, QSpinBox::down-button {{
+                width: 16px;
+                border: none;
+                background: {c['hover']};
+                border-radius: 2px;
+            }}
+            QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+                background: {c['checked_bg']};
             }}
             QComboBox {{
                 background: {c['bg']};
@@ -206,8 +212,6 @@ class SettingsDialog(QDialog):
                 border: 1px solid {c['border']};
                 border-radius: 6px;
                 padding: 5px 8px;
-                font-family: "{_FONT}";
-                font-size: 13px;
                 min-height: 20px;
             }}
             QComboBox:focus {{
@@ -237,6 +241,14 @@ class SettingsDialog(QDialog):
                 selection-background-color: {c['checked_bg']};
                 selection-color: {c['text']};
                 padding: 4px;
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: 4px 8px;
+                min-height: 24px;
+            }}
+            QComboBox QAbstractItemView::item:selected {{
+                background: {c['checked_bg']};
             }}
             QPushButton {{
                 background: {c['bg']};
@@ -244,8 +256,6 @@ class SettingsDialog(QDialog):
                 border: 1px solid {c['border']};
                 border-radius: 6px;
                 padding: 6px 18px;
-                font-family: "{_FONT}";
-                font-size: 13px;
             }}
             QPushButton:hover {{
                 background: {c['hover']};
@@ -253,8 +263,24 @@ class SettingsDialog(QDialog):
             QPushButton:pressed {{
                 background: {c['checked_bg']};
             }}
-            QFormLayout QLabel {{
-                font-size: 13px;
+            QScrollBar:vertical {{
+                background: transparent;
+                width: 8px;
+                margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {c['border']};
+                border-radius: 4px;
+                min-height: 20px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background: {c['text_secondary']};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                background: none;
             }}
         """
 
