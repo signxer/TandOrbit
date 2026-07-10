@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "tandorbit"
-version = "1.6.0"
+version = "1.6.1"
 description = "TandOrbit — 双机双屏智能协同管理平台"
 readme = "README.md"
 license = "MIT"
