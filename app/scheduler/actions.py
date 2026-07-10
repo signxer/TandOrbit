@@ -474,24 +474,22 @@ class LoadMonitorProfileAction(Action):
 
 
 class LocalDisplaySleepPrimaryAction(Action):
-    """Windows 端让主屏休眠（保留副屏给 Windows，主屏触发硬件信号切换给 Mac）
+    """Windows 端禁用主屏（保留副屏给 Windows，主屏切到 Mac 输入源）"""
 
-    DP 连接无法真正断开，只能通过 Win32 API 让显示器休眠，
-    触发显示器自动切换到另一个信号源。
-    """
-
-    def __init__(self) -> None:
+    def __init__(self, display_plugin: Any = None, primary_id: int = 1) -> None:
         super().__init__("Local display sleep primary")
+        self._display = display_plugin
+        self._primary_id = primary_id
 
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
+        if not self._display:
+            logger.warning("No display plugin for sleep primary")
+            return True
         try:
-            import ctypes
-            # SC_MONITORPOWER = 0xF170, HWND_BROADCAST = 0xFFFF, WM_SYSCOMMAND = 0x0112
-            # 2 = MONITOR_OFF
-            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
-            logger.info("Windows primary display put to sleep")
+            await self._display.disable_display(self._primary_id)
+            logger.info(f"Windows display {self._primary_id} disabled")
             return True
         except Exception as e:
             logger.warning(f"Local display sleep error: {e}")
