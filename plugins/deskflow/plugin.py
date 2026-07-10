@@ -102,6 +102,10 @@ class DeskflowPlugin(Plugin):
                 )
             return connected
 
+        # macOS client mode: write server address to Deskflow config before starting
+        if platform.system() == "Darwin" and not self._is_server:
+            self._write_client_config()
+
         cmd = self._get_start_command()
         logger.info(f"Starting Deskflow: {cmd}")
         try:
@@ -191,6 +195,38 @@ class DeskflowPlugin(Plugin):
 
     # --- 内部方法 ---
 
+    def _write_client_config(self) -> None:
+        """写入 client/remoteHost 到 Deskflow 配置文件（macOS QSettings 格式）"""
+        conf_path = Path.home() / "Library" / "Deskflow" / "Deskflow.conf"
+        if not conf_path.exists():
+            return
+        lines = conf_path.read_text().splitlines()
+        out: list[str] = []
+        in_client = False
+        written = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped == "[client]":
+                in_client = True
+                out.append(line)
+                continue
+            if stripped.startswith("[") and stripped.endswith("]"):
+                if in_client and not written:
+                    out.append(f"remoteHost={self._server_host}")
+                    written = True
+                in_client = False
+                out.append(line)
+                continue
+            if in_client and stripped.startswith("remoteHost="):
+                out.append(f"remoteHost={self._server_host}")
+                written = True
+                continue
+            out.append(line)
+        if in_client and not written:
+            out.append(f"remoteHost={self._server_host}")
+        conf_path.write_text("\n".join(out) + "\n")
+        logger.info(f"Wrote client/remoteHost={self._server_host} to {conf_path}")
+
     def _get_start_command(self) -> str:
         """获取启动命令"""
         system = platform.system()
@@ -199,7 +235,8 @@ class DeskflowPlugin(Plugin):
             if self._is_server:
                 return f'open -a "{exe}"'
             else:
-                return f'open -a "{exe}" --args --client {self._server_host}'
+                core = "/Applications/Deskflow.app/Contents/MacOS/deskflow-core"
+                return f'"{core}" client'
         elif system == "Windows":
             if self._is_server:
                 return f'start "" "{exe}"'
@@ -211,7 +248,7 @@ class DeskflowPlugin(Plugin):
         """获取停止命令"""
         system = platform.system()
         if system == "Darwin":
-            return "osascript -e 'quit app \"Deskflow\"'"
+            return 'pkill -f "Deskflow|deskflow-core"'
         elif system == "Windows":
             return "taskkill /IM Deskflow.exe /F"
         return "pkill deskflow"
