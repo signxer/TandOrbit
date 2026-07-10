@@ -286,17 +286,14 @@ def main() -> None:
     # 异步状态更新 → UI
     worker.status_updated.connect(window.update_device_status)
 
-    # 插件初始化报告 → 提示缺失依赖
+    # 插件初始化报告 → 缺失依赖时弹出检查清单
     def on_init_report(results: list) -> None:
-        failed = [(name, reason) for name, ok, reason in results if not ok]
+        failed = [ok for _, ok, _ in results if not ok]
         if not failed:
             return
-        lines = "\n".join(f"• {name}: {reason}" for name, reason in failed)
-        QMessageBox.warning(
-            window,
-            "初始化提示",
-            f"以下插件未能正常初始化，部分功能可能不可用：\n\n{lines}",
-        )
+        from app.gui.requirements_dialog import RequirementsDialog
+        dlg = RequirementsDialog(window)
+        dlg.exec()
 
     worker.init_report.connect(on_init_report)
 
