@@ -447,8 +447,19 @@ def main() -> None:
                 msg.setIcon(QMessageBox.Icon.Question)
                 msg.setText("Windows 未开机或不在网络中，是否发送 WoL 唤醒？")
                 yes_btn = msg.addButton("唤醒", QMessageBox.ButtonRole.AcceptRole)
-                msg.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+                no_btn = msg.addButton("取消", QMessageBox.ButtonRole.RejectRole)
                 msg.setDefaultButton(yes_btn)
+                msg.setStyleSheet("""
+                    QPushButton {
+                        border: 1px solid #D0D0D0;
+                        border-radius: 6px;
+                        padding: 5px 18px;
+                        font-size: 13px;
+                        min-width: 60px;
+                    }
+                    QPushButton:hover { background: #F5F5F5; }
+                    QPushButton:pressed { background: #E8F0FE; }
+                """)
                 msg.exec()
                 if msg.clickedButton() == yes_btn:
                     cfg = config_manager.config
