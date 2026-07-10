@@ -181,11 +181,15 @@ class ModeButton(QPushButton):
         inner.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
 
     def set_status_only(self) -> None:
-        """设为纯状态指示器（不可点击）"""
-        self.setCheckable(False)
-        self.setEnabled(False)
+        """设为纯状态指示器（保留 checkable 以配合 update_mode，但禁止点击切换）"""
+        self._status_only = True
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.setStyleSheet(self._STATUS_STYLE)
+
+    def mousePressEvent(self, event) -> None:
+        if getattr(self, "_status_only", False):
+            return  # 阻止点击切换 checked 状态
+        super().mousePressEvent(event)
 
 
 class MainWindow(QMainWindow):
