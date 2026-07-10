@@ -94,13 +94,12 @@ class DeskflowPlugin(Plugin):
     async def start(self) -> bool:
         """启动 Deskflow"""
         if await self._is_running():
-            logger.info("Deskflow already running, checking connection")
-            connected = await self.check_connection()
-            if connected:
-                self.event_bus.publish(
-                    DeskflowStatusChangedEvent(connected=True, source="Deskflow")
-                )
-            return connected
+            logger.info("Deskflow already running")
+            self._connected = True
+            self.event_bus.publish(
+                DeskflowStatusChangedEvent(connected=True, source="Deskflow")
+            )
+            return True
 
         # client mode: write server address to Deskflow config before starting
         if not self._is_server:
