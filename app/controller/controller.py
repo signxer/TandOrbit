@@ -124,11 +124,10 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # Windows 端：等待 Mac 准备好，再关显示器
+                # Windows 端：等待 Mac 准备好 → 停 Deskflow → 关屏（最后一步）
                 pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
-                pipeline.add_action(LocalDisplayOffAction())
-                pipeline.add_action(DelayAction(3.0, "等待显示器切换信号源"))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+                pipeline.add_action(LocalDisplayOffAction())
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
