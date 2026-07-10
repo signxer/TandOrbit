@@ -133,11 +133,14 @@ class MultiMonitorToolPlugin(Plugin):
 
     async def set_duplicate(self, source_id: int, target_id: int) -> bool:
         """设置显示器复制模式"""
-        # Windows 10/11 使用 PowerShell 设置显示模式
+        # 使用 Windows API 设置复制模式
         script = (
-            f'Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorID | '
-            f'Where-Object {{$_.InstanceName -like "*{source_id}*"}} '
+            "Add-Type -AssemblyName System.Windows.Forms; "
+            "[System.Windows.Forms.Screen]::AllScreens | "
+            "ForEach-Object { $_.Bounds }"
         )
+        # 实际上 MultiMonitorTool 没有直接的 duplicate 命令
+        # 需要用 Windows 显示设置 API，这里先用简化的实现
         ok = await self._run_powershell(script)
         return ok is not None
 

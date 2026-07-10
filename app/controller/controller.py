@@ -168,8 +168,7 @@ class Controller:
                     )
                 )
             else:
-                # Windows 端：先复制模式，再休眠主屏（保留副屏给 Windows）
-                pipeline.add_action(SetWindowsDuplicateAction(display_plugin=display))
+                # Windows 端：休眠主屏（保留副屏给 Windows，主屏给 Mac）
                 pipeline.add_action(LocalDisplaySleepPrimaryAction())
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
