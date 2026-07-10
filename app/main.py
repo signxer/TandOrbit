@@ -280,6 +280,54 @@ def main() -> None:
     tray.settings_requested.connect(open_settings)
     tray.quit_requested.connect(app.quit)
 
+    # --- 检查更新 ---
+    from app.updater import check_update, get_download_assets, __version__
+
+    def _show_update_dialog(release: dict) -> None:
+        """显示更新对话框"""
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        tag = release.get("tag_name", "")
+        url = release.get("html_url", "")
+        body = release.get("body", "")
+
+        # 截取更新日志前 500 字
+        changelog = body[:500] + "..." if len(body) > 500 else body
+
+        msg = QMessageBox(window)
+        msg.setWindowTitle("发现新版本")
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setText(f"新版本 <b>{tag}</b> 已发布（当前 {__version__}）")
+        msg.setInformativeText(f"<b>更新日志：</b><br><pre style='font-size:11px;'>{changelog}</pre>")
+        msg.setStandardButtons(QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Ignore)
+        msg.button(QMessageBox.StandardButton.Open).setText("前往下载")
+        msg.button(QMessageBox.StandardButton.Ignore).setText("稍后再说")
+
+        if msg.exec() == QMessageBox.StandardButton.Open:
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _do_check_update(silent: bool = False) -> None:
+        """执行更新检查（异步）"""
+        async def _check():
+            release = await check_update()
+            if release:
+                # 回到主线程弹窗
+                from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+                QMetaObject.invokeMethod(
+                    app, lambda: _show_update_dialog(release),
+                    Qt.ConnectionType.QueuedConnection,
+                )
+            elif not silent:
+                from PySide6.QtCore import QMetaObject, Qt
+                QMetaObject.invokeMethod(
+                    app, lambda: QMessageBox.information(window, "检查更新", f"当前已是最新版本 {__version__}"),
+                    Qt.ConnectionType.QueuedConnection,
+                )
+        worker.run_async(_check())
+
+    tray.check_update_requested.connect(lambda: _do_check_update(silent=False))
+
     # 订阅事件
     event_bus.subscribe(ModeChangedEvent, on_mode_changed)
 

@@ -18,6 +18,7 @@ class TrayIcon(QSystemTrayIcon):
     mode_switch_requested = Signal(Mode)
     show_window_requested = Signal()
     settings_requested = Signal()
+    check_update_requested = Signal()
     quit_requested = Signal()
 
     def __init__(self, icon: QIcon | None = None, parent: QWidget | None = None) -> None:
@@ -61,6 +62,13 @@ class TrayIcon(QSystemTrayIcon):
         share_action = QAction("共享模式", menu)
         share_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.SHARE))
         menu.addAction(share_action)
+
+        menu.addSeparator()
+
+        # 检查更新
+        update_action = QAction("检查更新...", menu)
+        update_action.triggered.connect(self.check_update_requested.emit)
+        menu.addAction(update_action)
 
         menu.addSeparator()
 
