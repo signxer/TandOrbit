@@ -79,9 +79,31 @@ python -m app.main
 |------|:----:|------|------|
 | [BetterDisplay](https://github.com/waydabber/BetterDisplay) | macOS | 显示器控制 | ↗ |
 | [MultiMonitorTool](https://www.nirsoft.net/utils/multi_monitor_tool.html) | Windows | 显示器管理 | ↗ |
+| [MonitorSwitcher](https://sourceforge.net/projects/monitorswitcher/) | Windows | 显示器配置切换 | ↗ |
 | [Deskflow](https://github.com/deskflow/deskflow) | 双端 | 键鼠共享 | ↗ |
 
 > 启动时会自动检查依赖，缺失的工具会提供下载链接。
+
+### 显示器配置（MonitorSwitcher）
+
+Windows 端使用 MonitorSwitcher 管理显示器模式切换。支持扩展、复制等模式，配置文件默认保存在：
+
+```
+%APPDATA%\MonitorSwitcher\Profiles\
+```
+
+**使用步骤：**
+
+1. 手动设置好显示器模式（Windows 显示设置）
+2. 保存配置：
+   ```bash
+   MonitorSwitcher.exe -save:"%APPDATA%\MonitorSwitcher\Profiles\extend.xml"
+   MonitorSwitcher.exe -save:"%APPDATA%\MonitorSwitcher\Profiles\clone.xml"
+   ```
+3. 在 TandOrbit 设置 → 显示器 → MonitorSwitcher 配置文件中填入路径
+4. 切换模式时自动加载对应配置
+
+> 如果不配置 MonitorSwitcher，TandOrbit 会使用 Windows API 控制显示器。
 
 ---
 

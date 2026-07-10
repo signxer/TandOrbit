@@ -422,8 +422,9 @@ class SettingsDialog(QDialog):
         if platform.system() != "Darwin":
             profile_group = QGroupBox("MonitorSwitcher 配置文件")
             profile_form = QFormLayout(profile_group)
+            default_dir = Path.home() / "AppData" / "Roaming" / "MonitorSwitcher" / "Profiles"
             self._profile_extend = QLineEdit()
-            self._profile_extend.setPlaceholderText("扩展模式配置文件路径")
+            self._profile_extend.setPlaceholderText(str(default_dir / "extend.xml"))
             ext_btn = QPushButton("浏览...")
             ext_btn.setFixedWidth(70)
             ext_btn.clicked.connect(lambda: self._browse_xml(self._profile_extend))
@@ -431,7 +432,7 @@ class SettingsDialog(QDialog):
             ext_row.addWidget(self._profile_extend)
             ext_row.addWidget(ext_btn)
             self._profile_clone = QLineEdit()
-            self._profile_clone.setPlaceholderText("复制模式配置文件路径")
+            self._profile_clone.setPlaceholderText(str(default_dir / "clone.xml"))
             clone_btn = QPushButton("浏览...")
             clone_btn.setFixedWidth(70)
             clone_btn.clicked.connect(lambda: self._browse_xml(self._profile_clone))
