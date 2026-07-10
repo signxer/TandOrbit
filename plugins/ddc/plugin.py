@@ -147,11 +147,35 @@ class DDCPlugin(Plugin):
 
     async def power_off(self, display_id: int) -> bool:
         """关闭显示器（DDC/CI）"""
-        return await self._write_vcp(display_id, VCP_POWER_MODE, POWER_OFF)
+        monitor = self._monitor_str(display_id)
+        cmd = f'"{self._tool_path}" /TurnOff "{monitor}"'
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            return proc.returncode == 0
+        except Exception as e:
+            logger.error(f"ControlMyMonitor power off error: {e}")
+            return False
 
     async def power_on(self, display_id: int) -> bool:
         """打开显示器（DDC/CI）"""
-        return await self._write_vcp(display_id, VCP_POWER_MODE, POWER_ON)
+        monitor = self._monitor_str(display_id)
+        cmd = f'"{self._tool_path}" /TurnOn "{monitor}"'
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+            return proc.returncode == 0
+        except Exception as e:
+            logger.error(f"ControlMyMonitor power on error: {e}")
+            return False
 
     # --- 内部方法 ---
 
@@ -221,9 +245,15 @@ class DDCPlugin(Plugin):
             logger.error(f"m1ddc write error: {e}")
             return False
 
+    @staticmethod
+    def _monitor_str(display_id: int) -> str:
+        """将数字 ID 转为 ControlMyMonitor 格式"""
+        return f"\\\\.\\DISPLAY{display_id}\\Monitor0"
+
     async def _windows_read_vcp(self, display_id: int, vcp_code: int) -> int | None:
         """Windows: 使用 ControlMyMonitor 读取 VCP 值"""
-        cmd = f'"{self._tool_path}" /GetValue {display_id} {vcp_code:#04x}'
+        monitor = self._monitor_str(display_id)
+        cmd = f'"{self._tool_path}" /GetValue "{monitor}" {vcp_code:#04x}'
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd,
@@ -241,7 +271,8 @@ class DDCPlugin(Plugin):
         self, display_id: int, vcp_code: int, value: int
     ) -> bool:
         """Windows: 使用 ControlMyMonitor 写入 VCP 值"""
-        cmd = f'"{self._tool_path}" /SetValue {display_id} {vcp_code:#04x} {value}'
+        monitor = self._monitor_str(display_id)
+        cmd = f'"{self._tool_path}" /SetValue "{monitor}" {vcp_code:#04x} {value}'
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd,

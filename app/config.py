@@ -19,6 +19,7 @@ class DisplayConfig(BaseModel):
     primary_id: int = 1
     secondary_id: int = 2
     share_display_id: int = 2  # 共享模式下留给 Windows 的显示器 ID
+    ddc_primary_id: int = 2  # ControlMyMonitor 的主屏 ID（可能与 MultiMonitorTool 不同）
     # MonitorSwitcher 配置文件路径（Windows）
     profile_extend: str = ""  # 扩展模式配置
     profile_clone: str = ""   # 复制模式配置
