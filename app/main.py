@@ -255,6 +255,7 @@ def main() -> None:
 
     # 连接信号
     def on_mode_changed(event: ModeChangedEvent) -> None:
+        logger.info(f"[EVENT] ModeChangedEvent: {event.old_mode} -> {event.new_mode}")
         mode = Mode[event.new_mode] if event.new_mode in Mode.__members__ else Mode.UNKNOWN
         window.update_mode(mode)
         tray.update_mode(mode)
@@ -432,13 +433,18 @@ def main() -> None:
     _mode_sync = _ModeSyncSignals()
 
     def _sync_mode_ui() -> None:
-        window.update_mode(controller.current_mode)
-        tray.update_mode(controller.current_mode)
+        mode = controller.current_mode
+        logger.info(f"[SYNC] Syncing UI to mode={mode.name}")
+        window.update_mode(mode)
+        tray.update_mode(mode)
+        for m, btn in window._mode_buttons.items():
+            logger.info(f"[SYNC]   Button {m.name}: checked={btn.isChecked()}")
 
     _mode_sync.sync.connect(_sync_mode_ui)
 
     # 模式切换：检查 Windows 是否在线，离线时询问是否 WoL
     def on_mode_switch(mode: Mode) -> None:
+        logger.info(f"[MODE] on_mode_switch requested: {mode.name}, current={controller.current_mode.name}")
         if mode == Mode.WINDOWS or mode == Mode.SHARE:
             win_online = window._win_status._online
             if not win_online:
