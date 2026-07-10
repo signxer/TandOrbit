@@ -202,6 +202,7 @@ def main() -> None:
         tray_icon = QIcon(str(_resource_path("resources/icon.ico")))
     else:
         tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
+        tray_icon.setIsMask(True)  # macOS 模板图标，自动适配深色/浅色菜单栏
     tray = TrayIcon(tray_icon)
     tray.show()
 
