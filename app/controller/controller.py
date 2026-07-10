@@ -175,14 +175,13 @@ class Controller:
                     )
                 )
             else:
-                # Windows 端：休眠主屏（保留副屏给 Windows，主屏给 Mac）
+                # Windows 端：加载复制配置 → 休眠主屏（主屏切到 Mac）
                 if cfg.display.profile_clone:
                     pipeline.add_action(LoadMonitorProfileAction(
                         profile_path=cfg.display.profile_clone,
                         tool_path=cfg.tools.monitor_switcher_path,
                     ))
-                else:
-                    pipeline.add_action(LocalDisplaySleepPrimaryAction())
+                pipeline.add_action(LocalDisplaySleepPrimaryAction())
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
         return pipeline

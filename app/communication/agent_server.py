@@ -361,7 +361,13 @@ class AgentServer:
                     status_code=400,
                 )
             mode = Mode[mode_name]
+            # 检查是否已经是目标模式（避免重复操作）
             if hasattr(self, "_state_manager") and self._state_manager:
+                if self._state_manager.current_mode == mode:
+                    logger.info(f"Already in {mode_name} mode, skipping")
+                    return JSONResponse(
+                        AgentResponse(success=True, message=f"Already in {mode_name}").model_dump(mode="json")
+                    )
                 self._state_manager.force_set(mode)
                 logger.info(f"Mode synced from remote: {mode_name}")
             # Windows 端：执行显示器切换
