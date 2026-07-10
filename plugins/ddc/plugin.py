@@ -146,36 +146,12 @@ class DDCPlugin(Plugin):
         return await self._write_vcp(display_id, VCP_CONTRAST, level)
 
     async def power_off(self, display_id: int) -> bool:
-        """关闭显示器（DDC/CI）"""
-        monitor = self._monitor_str(display_id)
-        cmd = f'"{self._tool_path}" /TurnOff "{monitor}"'
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=5.0)
-            return proc.returncode == 0
-        except Exception as e:
-            logger.error(f"ControlMyMonitor power off error: {e}")
-            return False
+        """关闭显示器（DDC/CI VCP D6=5）"""
+        return await self._write_vcp(display_id, VCP_POWER_MODE, 5)
 
     async def power_on(self, display_id: int) -> bool:
-        """打开显示器（DDC/CI）"""
-        monitor = self._monitor_str(display_id)
-        cmd = f'"{self._tool_path}" /TurnOn "{monitor}"'
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=5.0)
-            return proc.returncode == 0
-        except Exception as e:
-            logger.error(f"ControlMyMonitor power on error: {e}")
-            return False
+        """打开显示器（DDC/CI VCP D6=1）"""
+        return await self._write_vcp(display_id, VCP_POWER_MODE, 1)
 
     # --- 内部方法 ---
 
@@ -248,7 +224,7 @@ class DDCPlugin(Plugin):
     @staticmethod
     def _monitor_str(display_id: int) -> str:
         """将数字 ID 转为 ControlMyMonitor 格式"""
-        return f"\\\\.\\DISPLAY{display_id}\\Monitor0"
+        return f"\\\\.\\DISPLAY{display_id}\\Monitor1"
 
     async def _windows_read_vcp(self, display_id: int, vcp_code: int) -> int | None:
         """Windows: 使用 ControlMyMonitor 读取 VCP 值"""
