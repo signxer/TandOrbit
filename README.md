@@ -1,234 +1,178 @@
-# TandOrbit
+<p align="center">
+  <img src="resources/icon.png" width="120" alt="TandOrbit Logo">
+</p>
 
-**双机双屏智能协同管理平台**
+<h1 align="center">TandOrbit</h1>
 
-让两台电脑像一台电脑一样自然工作。
+<p align="center">
+  <strong>双机双屏智能协同管理平台</strong>
+</p>
+
+<p align="center">
+  让两台电脑像一台电脑一样自然工作
+</p>
+
+<p align="center">
+  <a href="https://github.com/signxer/TandOrbit/releases"><img src="https://img.shields.io/github/v/release/signxer/TandOrbit?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://github.com/signxer/TandOrbit/actions"><img src="https://img.shields.io/github/actions/workflow/status/signxer/TandOrbit/build.yml?style=flat-square&label=build" alt="Build"></a>
+  <a href="https://github.com/signxer/TandOrbit/blob/main/LICENSE"><img src="https://img.shields.io/github/license/signxer/TandOrbit?style=flat-square&color=green" alt="License"></a>
+  <a href="https://github.com/signxer/TandOrbit/stargazers"><img src="https://img.shields.io/github/stars/signxer/TandOrbit?style=flat-square" alt="Stars"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/PySide6-Qt_GUI-black?style=flat-square&logo=qt&logoColor=white" alt="PySide6">
+  <img src="https://img.shields.io/badge/macOS-Sonoma+-black?style=flat-square&logo=apple&logoColor=white" alt="macOS">
+  <img src="https://img.shields.io/badge/Windows-10%2F11-blue?style=flat-square&logo=windows&logoColor=white" alt="Windows">
+  <img src="https://img.shields.io/badge/Deskflow-KVM_共享-green?style=flat-square" alt="Deskflow">
+</p>
 
 ---
 
-## 简介
+## ✨ 核心特性
 
-TandOrbit 是一个针对 **macOS + Windows 双机双屏** 场景开发的桌面协同软件。通过统一管理两台计算机、两台显示器及外设，实现真正意义上的"无感切换"。
+- **🖥️ 无感切换** — 快捷键一键切换工作模式，显示器自动识别信号源
+- **⌨️ 键鼠共享** — 通过 Deskflow 实现跨平台键鼠共享，鼠标自由穿越两屏
+- **🔌 自动发现** — UDP 广播自动发现对端，无需手动配置 IP 和端口
+- **🧩 插件架构** — 所有能力插件化，按平台加载，可扩展
+- **🔋 电源管理** — WoL 远程唤醒 + 自动休眠，省电省心
 
-### 核心特性
+## 🎯 工作模式
 
-- **无感切换** — 快捷键一键切换工作模式，全程自动
-- **状态驱动** — 基于状态机的模式管理，保证一致性和可恢复性
-- **插件架构** — 所有能力插件化，可扩展
-- **双平台支持** — macOS 端控制 + Windows 端 Agent
+| 模式 | Mac | Windows | 键鼠 | 场景 |
+|:----:|:---:|:-------:|:----:|------|
+| **Mac** | 双屏 ✅ | 休眠 💤 | — | 纯 Mac 工作 |
+| **Windows** | 休眠 💤 | 双屏 ✅ | — | 纯 Windows 工作 |
+| **共享** | 主屏 ✅ | 副屏 ✅ | 共享 ⌨️ | 同时使用两台机器 |
 
-### 工作模式
+---
 
-| 模式 | 说明 |
+## 📦 安装
+
+### 下载预编译包（推荐）
+
+前往 **[Releases](https://github.com/signxer/TandOrbit/releases)** 下载：
+
+| 平台 | 文件 |
 |------|------|
-| Mac 模式 | 双屏均为 Mac，Windows 待机 |
-| Windows 模式 | 双屏均为 Windows，Mac 休眠 |
-| 共享模式 | 一屏 Mac，一屏 Windows，键鼠共享 |
+| macOS | `TandOrbit-macOS.dmg` |
+| Windows | `TandOrbit-Windows.zip` |
 
----
-
-## 架构
-
-```
-                     GUI (PySide6)
-                           │
-                    State Manager
-                           │
-                Scheduler / EventBus
-                           │
-           ┌───────────────┴───────────────┐
-           │                               │
-      Mac Client                     Windows Agent
-           │                               │
-    BetterDisplay                 MultiMonitorTool
-    AppleScript                   PowerShell
-    pmset                         WinAPI
-           │                               │
-           └──────── HTTP API ─────────────┘
-```
-
----
-
-## 安装
-
-### 前置要求
-
-- Python 3.11+
-- macOS: [BetterDisplay](https://github.com/waydabber/BetterDisplay)
-- Windows: [MultiMonitorTool](https://www.nirsoft.net/utils/multi_monitor_tool.html)
-- 两台: [Deskflow](https://github.com/deskflow/deskflow)
-
-### 安装依赖
+**macOS 首次安装**需要授权：
 
 ```bash
+sudo xattr -rd com.apple.quarantine /Applications/TandOrbit.app
+```
+
+### 从源码运行
+
+```bash
+git clone https://github.com/signxer/TandOrbit.git
+cd TandOrbit
 pip install -r requirements.txt
-```
-
-或使用开发模式：
-
-```bash
-pip install -e ".[dev]"
-```
-
----
-
-## 使用
-
-### Mac 端（主控端）
-
-```bash
 python -m app.main
 ```
 
-### Windows 端
+### 前置工具
 
-```bash
-python -m app.main
-```
+| 工具 | 平台 | 用途 | 下载 |
+|------|:----:|------|------|
+| [BetterDisplay](https://github.com/waydabber/BetterDisplay) | macOS | 显示器控制 | ↗ |
+| [MultiMonitorTool](https://www.nirsoft.net/utils/multi_monitor_tool.html) | Windows | 显示器管理 | ↗ |
+| [Deskflow](https://github.com/deskflow/deskflow) | 双端 | 键鼠共享 | ↗ |
 
-### 快捷键
-
-| 快捷键 | 功能 |
-|--------|------|
-| `Ctrl+Alt+1` | 切换到 Mac 模式 |
-| `Ctrl+Alt+2` | 切换到 Windows 模式 |
-| `Ctrl+Alt+3` | 切换到共享模式 |
+> 启动时会自动检查依赖，缺失的工具会提供下载链接。
 
 ---
 
-## 配置
+## ⌨️ 快捷键
 
-配置文件位于 `~/.tandorbit/config.yaml`：
-
-```yaml
-display:
-  primary_id: 1
-  secondary_id: 2
-
-windows:
-  host: "192.168.1.100"
-  port: 5000
-
-deskflow:
-  auto_restart: true
-  server_host: "192.168.1.100"
-  server_port: 24800
-
-audio:
-  mac_output: "AirPods"
-  windows_output: "USB DAC"
-```
+| macOS | Windows | 功能 |
+|:-----:|:-------:|------|
+| `⌃⌥1` | `Ctrl+Alt+1` | 切换到 Mac 模式 |
+| `⌃⌥2` | `Ctrl+Alt+2` | 切换到 Windows 模式 |
+| `⌃⌥3` | `Ctrl+Alt+3` | 切换到共享模式 |
 
 ---
 
-## 开发
+## 🏗️ 架构
 
-### 运行测试
-
-```bash
-pytest
 ```
-
-### 代码检查
-
-```bash
-ruff check .
-mypy .
+        ┌──────────── Mac (主控) ────────────┐
+        │                                     │
+        │  GUI (PySide6)                      │
+        │    ↕                                │
+        │  Controller → ActionPipeline        │
+        │    ↕           ↕                    │
+        │  StateManager  EventBus             │
+        │    ↕           ↕                    │
+        │  AgentServer    MacClient ──HTTP──► Windows AgentServer
+        │  (port 5001)              ◄──HTTP──  (port 5000)
+        │                                     │
+        │  Plugins:                           │
+        │  · BetterDisplay    · Deskflow      │
+        │  · WoL              · DDC/CI        │
+        └─────────────────────────────────────┘
 ```
 
 ---
 
-## 项目结构
+## 📁 项目结构
 
 ```
 TandOrbit/
-├── app/
-│   ├── gui/              # PySide6 界面
-│   ├── controller/       # 控制器
-│   ├── scheduler/        # 调度器和动作管道
-│   ├── events/           # 事件总线
-│   ├── state/            # 状态机
-│   ├── communication/    # 双机通信
-│   └── main.py           # GUI 入口（Mac + Windows）
-├── plugins/
-│   ├── betterdisplay/    # macOS 显示器控制
-│   ├── multimonitortool/ # Windows 显示器控制
-│   ├── deskflow/         # 键鼠共享
-│   ├── wol/              # Wake on LAN
-│   ├── audio/            # 音频管理
-│   ├── clipboard/        # 剪贴板同步
-│   └── ddc/              # DDC/CI 控制
-├── config/               # 默认配置
-├── tests/                # 单元测试
-└── docs/                 # 文档
+├── app/                    # 应用代码
+│   ├── gui/                # PySide6 界面
+│   ├── controller/         # 控制器（唯一入口）
+│   ├── scheduler/          # 动作管道（Pipeline + Action）
+│   ├── state/              # 状态机
+│   ├── communication/      # 双机通信（HTTP + UDP 发现）
+│   ├── config.py           # 配置管理
+│   └── main.py             # 入口（Mac + Windows 共用）
+├── plugins/                # 插件
+│   ├── betterdisplay/      # macOS 显示器控制
+│   ├── multimonitortool/   # Windows 显示器管理
+│   ├── deskflow/           # 键鼠共享
+│   ├── wol/                # Wake on LAN
+│   ├── audio/              # 音频设备切换
+│   ├── clipboard/          # 剪贴板同步
+│   └── ddc/                # DDC/CI 显示器控制
+├── packaging/              # PyInstaller 打包配置
+├── config/                 # 默认配置
+├── scripts/                # 工具脚本
+├── tests/                  # 单元测试
+└── docs/                   # 文档
 ```
 
 ---
 
-## 开发里程碑
+## 📖 文档
 
-| 阶段 | 目标 |
-|------|------|
-| M1 | 基础框架（GUI、配置、日志、插件系统、状态机） |
-| M2 | macOS 控制（BetterDisplay CLI 封装） |
-| M3 | Windows Agent（HTTP API、显示模式切换） |
-| M4 | 模式切换（Mac/Windows/Share 三种模式一键切换） |
-| M5 | 稳定性（自动检测、异常恢复、打包发布） |
-
----
-
-## 下载
-
-### 预编译安装包
-
-前往 [Releases](https://github.com/signxer/TandOrbit/releases) 页面下载：
-
-- **macOS**: `TandOrbit-macOS.dmg`
-- **Windows**: `TandOrbit-Windows.zip`
-
-### macOS 安装说明
-
-1. 下载 `TandOrbit-macOS.dmg`，打开后将 TandOrbit 拖入 Applications
-2. 首次打开需要授权，任选一种方式：
-   - **方式一**：系统设置 → 隐私与安全性 → 开发者工具 → 添加 TandOrbit
-   - **方式二**：终端执行 `sudo xattr -rd com.apple.quarantine /Applications/TandOrbit.app`
-
-### 从源码构建
-
-```bash
-# macOS
-pyinstaller packaging/tandorbit.spec --noconfirm
-
-# Windows
-pyinstaller packaging/tandorbit.spec --noconfirm
-```
-
-### GitHub Actions 自动构建
-
-项目配置了 GitHub Actions，推送 `v*` 标签时自动构建：
-
-```bash
-# 创建标签并推送
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-Actions 会自动：
-1. 运行测试
-2. 构建 macOS `.app` 和 `.dmg`
-3. 构建 Windows `.exe`
-4. 创建 GitHub Release 并上传安装包
-
----
-
-## 文档
-
-- [使用说明](docs/使用说明.md) — 详细的安装和使用指南
+- [使用说明](docs/使用说明.md) — 安装、配置和使用指南
 - [项目规划说明书](docs/项目规划说明书.md) — 项目背景和目标
 - [软件设计说明书](docs/软件设计说明书.md) — 技术架构设计
 
 ---
 
-## 许可证
+## 🛠️ 开发
 
-MIT License
+```bash
+# 安装开发依赖
+pip install -e ".[dev]"
+
+# 运行测试
+pytest
+
+# 代码检查
+ruff check .
+mypy .
+
+# 从源码构建
+pyinstaller packaging/tandorbit.spec --noconfirm
+```
+
+---
+
+## 📄 许可证
+
+[MIT License](LICENSE) · © [signxer](https://github.com/signxer)
