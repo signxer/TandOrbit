@@ -12,7 +12,30 @@ from pathlib import Path
 from loguru import logger
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
+
+_MSGBOX_STYLE = """
+    QPushButton {
+        border: 1px solid #D0D0D0;
+        border-radius: 6px;
+        padding: 5px 18px;
+        font-size: 13px;
+        min-width: 60px;
+    }
+    QPushButton:hover { background: #F5F5F5; }
+    QPushButton:pressed { background: #E8F0FE; }
+"""
+
+
+def _msgbox(icon: QMessageBox.Icon, title: str, text: str, parent=None) -> int:
+    """统一样式的消息框"""
+    msg = QMessageBox(parent)
+    msg.setIcon(icon)
+    msg.setWindowTitle(title)
+    msg.setText(text)
+    msg.setStyleSheet(_MSGBOX_STYLE)
+    msg.exec()
+    return msg.result()
 
 from app.config import ConfigManager
 from app.controller.controller import Controller
@@ -298,6 +321,7 @@ def main() -> None:
         msg.setStandardButtons(QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Ignore)
         msg.button(QMessageBox.StandardButton.Open).setText("前往下载")
         msg.button(QMessageBox.StandardButton.Ignore).setText("稍后再说")
+        msg.setStyleSheet(_MSGBOX_STYLE)
 
         if msg.exec() == QMessageBox.StandardButton.Open:
             QDesktopServices.openUrl(QUrl(url))
@@ -314,7 +338,7 @@ def main() -> None:
         if release:
             _show_update_dialog(release)
         elif not silent:
-            QMessageBox.information(window, "检查更新", f"当前已是最新版本 {__version__}")
+            _msgbox(QMessageBox.Icon.Information, "检查更新", f"当前已是最新版本 {__version__}", window)
 
     _update_signals.result.connect(_on_update_result)
 
@@ -449,27 +473,14 @@ def main() -> None:
                 yes_btn = msg.addButton("唤醒", QMessageBox.ButtonRole.AcceptRole)
                 no_btn = msg.addButton("取消", QMessageBox.ButtonRole.RejectRole)
                 msg.setDefaultButton(yes_btn)
-                msg.setStyleSheet("""
-                    QPushButton {
-                        border: 1px solid #D0D0D0;
-                        border-radius: 6px;
-                        padding: 5px 18px;
-                        font-size: 13px;
-                        min-width: 60px;
-                    }
-                    QPushButton:hover { background: #F5F5F5; }
-                    QPushButton:pressed { background: #E8F0FE; }
-                """)
+                msg.setStyleSheet(_MSGBOX_STYLE)
                 msg.exec()
                 if msg.clickedButton() == yes_btn:
                     cfg = config_manager.config
                     if cfg.windows.mac_address:
                         worker.run_async(_wake_and_switch(mode))
                     else:
-                        QMessageBox.warning(
-                            window, "缺少配置",
-                            "请先在设置中填写 Windows 的 MAC 地址。",
-                        )
+                        _msgbox(QMessageBox.Icon.Warning, "缺少配置", "请先在设置中填写 Windows 的 MAC 地址。", window)
                         _sync_mode_ui()
                 else:
                     _sync_mode_ui()
@@ -498,7 +509,7 @@ def main() -> None:
         logger.error("Windows did not come online after WoL")
         _mode_sync.sync.emit()
         from PySide6.QtWidgets import QApplication
-        QMessageBox.warning(None, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
+        _msgbox(QMessageBox.Icon.Warning, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
 
     window.mode_switch_requested.connect(on_mode_switch)
     tray.mode_switch_requested.connect(on_mode_switch)
