@@ -159,11 +159,12 @@ def main() -> None:
 
     # 防止 macOS 锁屏后挂起服务
     import subprocess
-    _caffeinate = subprocess.Popen(
-        ["caffeinate", "-i", "-s"],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    if sys.platform == "darwin":
+        _caffeinate = subprocess.Popen(
+            ["caffeinate", "-i", "-s"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     # 创建核心组件
     event_bus = EventBus()
