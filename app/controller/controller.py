@@ -128,13 +128,7 @@ class Controller:
                 # Windows 端：等待 Mac 准备好 → 停 Deskflow → 关屏（最后一步）
                 pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                if cfg.display.profile_primary_only:
-                    pipeline.add_action(LoadMonitorProfileAction(
-                        profile_path=cfg.display.profile_primary_only,
-                        tool_path=cfg.tools.monitor_switcher_path,
-                    ))
-                else:
-                    pipeline.add_action(LocalDisplayOffAction())
+                pipeline.add_action(LocalDisplayOffAction())
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:

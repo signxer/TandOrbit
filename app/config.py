@@ -22,7 +22,6 @@ class DisplayConfig(BaseModel):
     # MonitorSwitcher 配置文件路径（Windows）
     profile_extend: str = ""  # 扩展模式配置
     profile_clone: str = ""   # 复制模式配置
-    profile_primary_only: str = ""  # 仅主屏
 
 
 class WindowsConfig(BaseModel):

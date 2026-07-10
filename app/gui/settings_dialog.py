@@ -426,14 +426,11 @@ class SettingsDialog(QDialog):
             self._profile_extend.setPlaceholderText("扩展模式配置文件路径")
             self._profile_clone = QLineEdit()
             self._profile_clone.setPlaceholderText("复制模式配置文件路径")
-            self._profile_primary_only = QLineEdit()
-            self._profile_primary_only.setPlaceholderText("仅主屏配置文件路径")
             profile_hint = QLabel("使用 MonitorSwitcher.exe -save:profile.xml 保存当前配置")
             profile_hint.setStyleSheet("color: #888; font-size: 11px;")
             profile_hint.setWordWrap(True)
             profile_form.addRow("扩展模式:", self._profile_extend)
             profile_form.addRow("复制模式:", self._profile_clone)
-            profile_form.addRow("仅主屏:", self._profile_primary_only)
             profile_form.addRow("", profile_hint)
             layout.addRow(profile_group)
 
@@ -595,7 +592,6 @@ class SettingsDialog(QDialog):
         if platform.system() != "Darwin":
             self._profile_extend.setText(cfg.display.profile_extend)
             self._profile_clone.setText(cfg.display.profile_clone)
-            self._profile_primary_only.setText(cfg.display.profile_primary_only)
 
         # 音频 — 尝试从插件获取列表
         self._refresh_audio()
@@ -709,7 +705,6 @@ class SettingsDialog(QDialog):
                 "share_display_id": share_display_id,
                 "profile_extend": self._profile_extend.text() if not is_mac else "",
                 "profile_clone": self._profile_clone.text() if not is_mac else "",
-                "profile_primary_only": self._profile_primary_only.text() if not is_mac else "",
             },
             "deskflow": {
                 "server_host": self._df_host.text(),
