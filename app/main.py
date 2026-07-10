@@ -307,23 +307,27 @@ def main() -> None:
         if msg.exec() == QMessageBox.StandardButton.Open:
             QDesktopServices.openUrl(QUrl(url))
 
+    # 用信号桥接异步回调到主线程
+    from PySide6.QtCore import QObject, Signal as QSignal
+
+    class _UpdateSignals(QObject):
+        result = QSignal(object, bool)  # (release_or_None, silent)
+
+    _update_signals = _UpdateSignals()
+
+    def _on_update_result(release, silent):
+        if release:
+            _show_update_dialog(release)
+        elif not silent:
+            QMessageBox.information(window, "检查更新", f"当前已是最新版本 {__version__}")
+
+    _update_signals.result.connect(_on_update_result)
+
     def _do_check_update(silent: bool = False) -> None:
         """执行更新检查（异步）"""
         async def _check():
             release = await check_update()
-            if release:
-                # 回到主线程弹窗
-                from PySide6.QtCore import QMetaObject, Qt, Q_ARG
-                QMetaObject.invokeMethod(
-                    app, lambda: _show_update_dialog(release),
-                    Qt.ConnectionType.QueuedConnection,
-                )
-            elif not silent:
-                from PySide6.QtCore import QMetaObject, Qt
-                QMetaObject.invokeMethod(
-                    app, lambda: QMessageBox.information(window, "检查更新", f"当前已是最新版本 {__version__}"),
-                    Qt.ConnectionType.QueuedConnection,
-                )
+            _update_signals.result.emit(release, silent)
         worker.run_async(_check())
 
     tray.check_update_requested.connect(lambda: _do_check_update(silent=False))
