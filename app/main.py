@@ -447,7 +447,8 @@ def main() -> None:
                             window, "缺少配置",
                             "请先在设置中填写 Windows 的 MAC 地址。",
                         )
-                    return
+                # 用户点否 → 不切换，直接返回
+                return
         worker.run_async(controller.switch_mode(mode))
 
     async def _wake_and_switch(mode: Mode):
