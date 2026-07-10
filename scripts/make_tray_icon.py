@@ -11,7 +11,7 @@ from PIL import Image
 
 
 def main() -> None:
-    src = Image.open("icon.png").convert("RGBA")
+    src = Image.open("resources/icon.png").convert("RGBA")
 
     # 裁掉透明边距
     bbox = src.getbbox()
@@ -34,7 +34,7 @@ def main() -> None:
                 pixels[x, y] = (0, 0, 0, a)
 
     # 覆盖原 icon.png
-    src.save("icon.png")
+    src.save("resources/icon.png")
     print(f"Updated icon.png  ({src.size[0]}x{src.size[1]})")
 
     # 生成 tray 图标

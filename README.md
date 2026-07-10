@@ -198,10 +198,10 @@ TandOrbit/
 
 ```bash
 # macOS
-pyinstaller tandorbit.spec --noconfirm
+pyinstaller packaging/tandorbit.spec --noconfirm
 
 # Windows
-pyinstaller tandorbit_agent.spec --noconfirm
+pyinstaller packaging/tandorbit_agent.spec --noconfirm
 ```
 
 ### GitHub Actions 自动构建
@@ -225,8 +225,8 @@ Actions 会自动：
 ## 文档
 
 - [使用说明](docs/使用说明.md) — 详细的安装和使用指南
-- [项目规划说明书](TandOrbit%20项目规划说明书.md) — 项目背景和目标
-- [软件设计说明书](软件设计说明书.md) — 技术架构设计
+- [项目规划说明书](docs/项目规划说明书.md) — 项目背景和目标
+- [软件设计说明书](docs/软件设计说明书.md) — 技术架构设计
 
 ---
 

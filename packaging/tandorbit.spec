@@ -1,38 +1,29 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""TandOrbit Windows GUI PyInstaller 打包配置
+"""TandOrbit PyInstaller 打包配置
 
-与 macOS 端共享同一个 GUI 入口 (app/gui_main.py)。
+Mac 端打包配置。Windows 端使用 tandorbit_agent.spec。
 """
+
+import sys
+from pathlib import Path
 
 block_cipher = None
 
 a = Analysis(
-    ['app/gui_main.py'],
+    ['app/main.py'],
     pathex=[],
     binaries=[],
     datas=[
         ('config', 'config'),
         ('resources', 'resources'),
-        ('icon.png', '.'),
+        ('resources/icon.png', '.'),
     ],
     hiddenimports=[
         'PySide6.QtCore',
         'PySide6.QtGui',
         'PySide6.QtWidgets',
-        'PySide6.QtSvg',
-        'PySide6.QtSvgWidgets',
         'starlette',
         'uvicorn',
-        'uvicorn.logging',
-        'uvicorn.loops',
-        'uvicorn.loops.auto',
-        'uvicorn.protocols',
-        'uvicorn.protocols.http',
-        'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.websockets',
-        'uvicorn.protocols.websockets.auto',
-        'uvicorn.lifespan',
-        'uvicorn.lifespan.on',
         'httpx',
     ],
     hookspath=[],
@@ -59,11 +50,10 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
+    argv_emulation=True,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='resources/icon.ico',
 )
 
 coll = COLLECT(
@@ -76,3 +66,17 @@ coll = COLLECT(
     upx_exclude=[],
     name='TandOrbit',
 )
+
+if sys.platform == 'darwin':
+    app = BUNDLE(
+        coll,
+        name='TandOrbit.app',
+        icon='resources/icon.icns',
+        bundle_identifier='com.tandorbit.app',
+        info_plist={
+            'CFBundleShortVersionString': '1.1.1',
+            'CFBundleName': 'TandOrbit',
+            'NSHighResolutionCapable': True,
+            'LSUIElement': True,  # 后台运行，不显示 Dock 图标
+        },
+    )

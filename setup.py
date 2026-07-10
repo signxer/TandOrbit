@@ -19,11 +19,11 @@ setup(
             "resources/icon.ico",
         ]),
         ("config", ["config/default.yaml"]),
-        (".", ["icon.png"]),
+        (".", ["resources/icon.png"]),
     ],
     options={
         "py2app": {
-            "iconfile": "icon.icns",
+            "iconfile": "resources/icon.icns",
             "plist": {
                 "CFBundleName": "TandOrbit",
                 "CFBundleDisplayName": "TandOrbit",
