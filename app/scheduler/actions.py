@@ -221,24 +221,12 @@ class ConfigureDisplaysForWindows(Action):
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Windows mode")
-        # Mac 端：断开副屏 + 休眠所有显示器
+        # Mac 端：断开副屏，让显示器自动切换到 Windows 输入源
         if self._mac_display:
             try:
                 await self._mac_display.disable_display(2)
             except Exception as e:
                 logger.warning(f"Mac display disable error: {e}")
-
-        if platform.system() == "Darwin":
-            try:
-                proc = await asyncio.create_subprocess_shell(
-                    "pmset displaysleepnow",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await proc.wait()
-                logger.info("Mac displays put to sleep")
-            except Exception as e:
-                logger.warning(f"Mac display sleep error: {e}")
 
         # 等待显示器切换输入源
         await asyncio.sleep(2.0)
