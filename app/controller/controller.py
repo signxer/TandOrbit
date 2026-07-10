@@ -126,7 +126,7 @@ class Controller:
             else:
                 # Windows 端：等待 Mac 准备好，再关显示器
                 pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
-                pipeline.add_action(LocalDisplayOffAction(display_plugin=display))
+                pipeline.add_action(LocalDisplayOffAction())
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到 Windows 模式 ===

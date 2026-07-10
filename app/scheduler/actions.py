@@ -364,49 +364,17 @@ class SetAudioWindowsAction(Action):
 
 
 class LocalDisplayOffAction(Action):
-    """本地关闭所有显示器（Windows 端切到 Mac 模式时使用）
+    """本地关闭所有显示器（Windows 端切到 Mac 模式时使用）"""
 
-    关闭后等待 Mac 接管，再检查是否有屏幕被 Windows 唤醒。
-    如果两个屏幕都亮了，返回 False 让状态回滚到 Windows。
-    """
-
-    def __init__(self, display_plugin: Any = None) -> None:
+    def __init__(self) -> None:
         super().__init__("Local display off")
-        self._display = display_plugin
 
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
         try:
             import ctypes
-            # 第一轮：连续关闭
-            for _ in range(5):
-                ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
-                await asyncio.sleep(0.5)
-            # 等待 Mac 接管信号源
-            await asyncio.sleep(3.0)
-            # 第二轮：再关一次，防止 Windows 唤醒
-            for _ in range(3):
-                ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
-                await asyncio.sleep(0.5)
-            # 检查是否有屏幕被唤醒
-            if self._display:
-                await asyncio.sleep(2.0)
-                try:
-                    displays = await self._display.list_displays()
-                    active = [d for d in displays if d.is_enabled]
-                    if len(active) >= 2:
-                        # 两个屏幕都亮了，切换失败
-                        logger.error("Both displays still active, switch failed")
-                        return False
-                    elif len(active) == 1:
-                        # 一个屏幕亮了，再关一次
-                        logger.warning("One display still active, turning off again")
-                        for _ in range(5):
-                            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
-                            await asyncio.sleep(0.5)
-                except Exception:
-                    pass
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
             logger.info("All local displays off")
             return True
         except Exception as e:
