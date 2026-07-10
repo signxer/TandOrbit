@@ -430,6 +430,18 @@ def main() -> None:
 
     worker.init_done.connect(on_init_done)
 
+    # 切换完成后刷新 UI 按钮状态（确保与实际模式一致）
+    class _ModeSyncSignals(QObject):
+        sync = QSignal()
+
+    _mode_sync = _ModeSyncSignals()
+
+    def _sync_mode_ui() -> None:
+        window.update_mode(controller.current_mode)
+        tray.update_mode(controller.current_mode)
+
+    _mode_sync.sync.connect(_sync_mode_ui)
+
     # 模式切换：检查 Windows 是否在线，离线时询问是否 WoL
     def on_mode_switch(mode: Mode) -> None:
         if mode == Mode.WINDOWS or mode == Mode.SHARE:
@@ -452,9 +464,14 @@ def main() -> None:
                             window, "缺少配置",
                             "请先在设置中填写 Windows 的 MAC 地址。",
                         )
-                # 用户点否 → 不切换，直接返回
+                        _sync_mode_ui()
+                else:
+                    _sync_mode_ui()
                 return
-        worker.run_async(controller.switch_mode(mode))
+        async def _switch_and_sync():
+            await controller.switch_mode(mode)
+            _mode_sync.sync.emit()
+        worker.run_async(_switch_and_sync())
 
     async def _wake_and_switch(mode: Mode):
         """发送 WoL 后等待 Windows 上线再切换"""
@@ -469,9 +486,11 @@ def main() -> None:
             if await controller.check_windows_agent():
                 logger.info("Windows is online, switching mode")
                 await controller.switch_mode(mode)
+                _mode_sync.sync.emit()
                 return
             await asyncio.sleep(2)
         logger.error("Windows did not come online after WoL")
+        _mode_sync.sync.emit()
         from PySide6.QtWidgets import QApplication
         QMessageBox.warning(None, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
 
