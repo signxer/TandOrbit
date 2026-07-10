@@ -290,7 +290,7 @@ class MainWindow(QMainWindow):
             btn_row.addWidget(btn)
         layout.addLayout(btn_row)
 
-        layout.addSpacing(30)
+        layout.addSpacing(8)
 
         # --- 快捷键提示（与按钮列对齐） ---
         self._hk_labels: list[QLabel] = []
