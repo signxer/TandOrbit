@@ -162,7 +162,10 @@ class Controller:
                         timeout=60.0,
                     ))
                 pipeline.add_action(
-                    ConfigureDisplaysForShare(mac_display_plugin=display)
+                    ConfigureDisplaysForShare(
+                        mac_display_plugin=display,
+                        secondary_display_id=cfg.display.secondary_id,
+                    )
                 )
             else:
                 # Windows 端：先复制模式，再休眠主屏（保留副屏给 Windows）

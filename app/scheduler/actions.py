@@ -254,9 +254,10 @@ class ConfigureDisplaysForWindows(Action):
 class ConfigureDisplaysForShare(Action):
     """配置显示器：Mac 保留主屏，关闭副屏（让 Windows 接管）"""
 
-    def __init__(self, mac_display_plugin: Any = None) -> None:
+    def __init__(self, mac_display_plugin: Any = None, secondary_display_id: int = 2) -> None:
         super().__init__("Configure displays for Share mode")
         self._mac_display = mac_display_plugin
+        self._secondary_id = secondary_display_id
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Share mode")
@@ -273,11 +274,14 @@ class ConfigureDisplaysForShare(Action):
             except Exception as e:
                 logger.warning(f"Mac display wake error: {e}")
 
-        # 关闭 Mac 副屏（screen_off 而非 disable，不断开连接）
+        # 关闭 Mac 副屏（hardwareBacklight=off，不断开连接，需要 DDC 支持）
         if self._mac_display:
             try:
-                await self._mac_display.screen_off(2)
-                logger.info("Mac secondary display screen off")
+                ok = await self._mac_display.screen_off(self._secondary_id)
+                if ok:
+                    logger.info(f"Mac secondary display (tagID={self._secondary_id}) screen off")
+                else:
+                    logger.warning(f"Mac secondary display (tagID={self._secondary_id}) screen off failed")
             except Exception as e:
                 logger.warning(f"Mac secondary display off error: {e}")
 

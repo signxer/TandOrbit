@@ -144,13 +144,13 @@ class BetterDisplayPlugin(Plugin):
         return ok is not None
 
     async def screen_off(self, display_id: int) -> bool:
-        """关闭显示器屏幕（不断开连接）"""
-        ok = await self._run_cli(f"set --tagID={display_id} --screen=off")
+        """关闭显示器屏幕（不断开连接，需要 DDC 支持）"""
+        ok = await self._run_cli(f"set --tagID={display_id} --hardwareBacklight=off")
         return ok is not None
 
     async def screen_on(self, display_id: int) -> bool:
         """打开显示器屏幕"""
-        ok = await self._run_cli(f"set --tagID={display_id} --screen=on")
+        ok = await self._run_cli(f"set --tagID={display_id} --hardwareBacklight=on")
         return ok is not None
 
     async def save_profile(self, name: str) -> bool:
