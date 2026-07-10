@@ -4,16 +4,19 @@
 import sys
 from pathlib import Path
 
+# spec 在 packaging/ 下，项目根目录是上一级
+ROOT = Path(__file__).resolve().parent.parent
+
 block_cipher = None
 
 a = Analysis(
-    ['app/main.py'],
-    pathex=[],
+    [str(ROOT / 'app' / 'main.py')],
+    pathex=[str(ROOT)],
     binaries=[],
     datas=[
-        ('config', 'config'),
-        ('resources', 'resources'),
-        ('resources/icon.png', '.'),
+        (str(ROOT / 'config'), 'config'),
+        (str(ROOT / 'resources'), 'resources'),
+        (str(ROOT / 'resources' / 'icon.png'), '.'),
     ],
     hiddenimports=[
         'PySide6.QtCore',
@@ -68,7 +71,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='TandOrbit.app',
-        icon='resources/icon.icns',
+        icon=str(ROOT / 'resources' / 'icon.icns'),
         bundle_identifier='com.tandorbit.app',
         info_plist={
             'CFBundleShortVersionString': '1.1.1',
