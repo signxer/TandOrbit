@@ -22,6 +22,7 @@ from app.scheduler.actions import (
     ConfigureDisplaysForWindows,
     DelayAction,
     DisplaySleepAction,
+    LoadMonitorProfileAction,
     LocalDisplayOffAction,
     LocalDisplayOnAction,
     LocalDisplaySleepPrimaryAction,
@@ -127,7 +128,13 @@ class Controller:
                 # Windows 端：等待 Mac 准备好 → 停 Deskflow → 关屏（最后一步）
                 pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                pipeline.add_action(LocalDisplayOffAction())
+                if cfg.display.profile_primary_only:
+                    pipeline.add_action(LoadMonitorProfileAction(
+                        profile_path=cfg.display.profile_primary_only,
+                        tool_path=cfg.tools.monitor_switcher_path,
+                    ))
+                else:
+                    pipeline.add_action(LocalDisplayOffAction())
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
@@ -147,7 +154,13 @@ class Controller:
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
                 # Windows 端：启用所有显示器 + 停止 Deskflow
-                pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
+                if cfg.display.profile_extend:
+                    pipeline.add_action(LoadMonitorProfileAction(
+                        profile_path=cfg.display.profile_extend,
+                        tool_path=cfg.tools.monitor_switcher_path,
+                    ))
+                else:
+                    pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到共享模式 ===
@@ -169,7 +182,13 @@ class Controller:
                 )
             else:
                 # Windows 端：休眠主屏（保留副屏给 Windows，主屏给 Mac）
-                pipeline.add_action(LocalDisplaySleepPrimaryAction())
+                if cfg.display.profile_clone:
+                    pipeline.add_action(LoadMonitorProfileAction(
+                        profile_path=cfg.display.profile_clone,
+                        tool_path=cfg.tools.monitor_switcher_path,
+                    ))
+                else:
+                    pipeline.add_action(LocalDisplaySleepPrimaryAction())
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
         return pipeline

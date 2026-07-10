@@ -19,7 +19,10 @@ class DisplayConfig(BaseModel):
     primary_id: int = 1
     secondary_id: int = 2
     share_display_id: int = 2  # 共享模式下留给 Windows 的显示器 ID
-    profiles: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # MonitorSwitcher 配置文件路径（Windows）
+    profile_extend: str = ""  # 扩展模式配置
+    profile_clone: str = ""   # 复制模式配置
+    profile_primary_only: str = ""  # 仅主屏
 
 
 class WindowsConfig(BaseModel):
@@ -67,6 +70,7 @@ class ToolsConfig(BaseModel):
     multimonitortool_path: str = "MultiMonitorTool.exe"
     controlmymonitor_path: str = "ControlMyMonitor.exe"
     deskflow_path: str = "deskflow.exe"
+    monitor_switcher_path: str = "MonitorSwitcher.exe"
 
 
 import platform

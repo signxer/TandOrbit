@@ -438,6 +438,41 @@ class SetWindowsDuplicateAction(Action):
         return True
 
 
+class LoadMonitorProfileAction(Action):
+    """通过 MonitorSwitcher 加载显示器配置"""
+
+    def __init__(self, profile_path: str, tool_path: str = "MonitorSwitcher.exe") -> None:
+        super().__init__(f"Load monitor profile: {profile_path}")
+        self._profile_path = profile_path
+        self._tool_path = tool_path
+
+    async def execute(self) -> bool:
+        import os
+        if not os.path.exists(self._profile_path):
+            logger.warning(f"Profile not found: {self._profile_path}")
+            return False
+        try:
+            cmd = f'"{self._tool_path}" -load:"{self._profile_path}"'
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            if proc.returncode == 0:
+                logger.info(f"Loaded monitor profile: {self._profile_path}")
+                return True
+            else:
+                logger.error(f"MonitorSwitcher error: {stderr.decode(errors='replace').strip()}")
+                return False
+        except Exception as e:
+            logger.error(f"Load profile error: {e}")
+            return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
 class LocalDisplaySleepPrimaryAction(Action):
     """Windows 端让主屏休眠（保留副屏给 Windows，主屏触发硬件信号切换给 Mac）
 
