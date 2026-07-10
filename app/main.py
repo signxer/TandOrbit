@@ -343,6 +343,25 @@ def main() -> None:
         win_timer.timeout.connect(_check_win_online)
         win_timer.start(5000)
 
+        # 定时检查 Deskflow 连接状态
+        deskflow_plugin = plugin_registry.get("deskflow")
+
+        def _check_deskflow():
+            if not deskflow_plugin:
+                return
+            connected = deskflow_plugin.connected
+            # 只在状态变化时更新 UI
+            if connected != window._deskflow_status._online:
+                window.update_device_status(
+                    mac_online=True,
+                    win_online=window._win_status._online,
+                    deskflow_connected=connected,
+                )
+
+        deskflow_timer = QTimer()
+        deskflow_timer.timeout.connect(_check_deskflow)
+        deskflow_timer.start(3000)
+
     worker.init_done.connect(on_init_done)
 
     # 模式切换：检查 Windows 是否在线，离线时询问是否 WoL
