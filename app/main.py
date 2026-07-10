@@ -254,9 +254,6 @@ def main() -> None:
     discovery.start()
 
     # 连接信号
-    def on_mode_switch(mode: Mode) -> None:
-        worker.run_async(controller.switch_mode(mode))
-
     def on_mode_changed(event: ModeChangedEvent) -> None:
         mode = Mode[event.new_mode] if event.new_mode in Mode.__members__ else Mode.UNKNOWN
         window.update_mode(mode)
@@ -267,10 +264,8 @@ def main() -> None:
         if settings_dialog.exec():  # 用户点了保存
             window.update_hotkeys(config_manager.config.hotkeys)
 
-    window.mode_switch_requested.connect(on_mode_switch)
     window.sleep_display_requested.connect(lambda: worker.run_async(controller.sleep_display()))
     window.settings_requested.connect(open_settings)
-    tray.mode_switch_requested.connect(on_mode_switch)
     def show_and_activate():
         window.show()
         window.raise_()
@@ -495,6 +490,7 @@ def main() -> None:
         QMessageBox.warning(None, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
 
     window.mode_switch_requested.connect(on_mode_switch)
+    tray.mode_switch_requested.connect(on_mode_switch)
 
     logger.info("TandOrbit Mac client started")
     app.exec()
