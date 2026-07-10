@@ -225,14 +225,6 @@ class SettingsDialog(QDialog):
                 border-left: 1px solid {c['border']};
                 border-radius: 0 6px 6px 0;
             }}
-            QComboBox::down-arrow {{
-                image: none;
-                width: 0; height: 0;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 5px solid {c['text_secondary']};
-                margin-right: 6px;
-            }}
             QComboBox QAbstractItemView {{
                 background: {c['bg']};
                 color: {c['text']};

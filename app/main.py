@@ -431,14 +431,15 @@ def main() -> None:
         if mode == Mode.WINDOWS or mode == Mode.SHARE:
             win_online = window._win_status._online
             if not win_online:
-                reply = QMessageBox.question(
-                    window,
-                    "Windows 离线",
-                    "Windows 未开机或不在网络中，是否发送 WoL 唤醒？",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes,
-                )
-                if reply == QMessageBox.StandardButton.Yes:
+                msg = QMessageBox(window)
+                msg.setWindowTitle("Windows 离线")
+                msg.setIcon(QMessageBox.Icon.Question)
+                msg.setText("Windows 未开机或不在网络中，是否发送 WoL 唤醒？")
+                yes_btn = msg.addButton("唤醒", QMessageBox.ButtonRole.AcceptRole)
+                msg.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+                msg.setDefaultButton(yes_btn)
+                msg.exec()
+                if msg.clickedButton() == yes_btn:
                     cfg = config_manager.config
                     if cfg.windows.mac_address:
                         worker.run_async(_wake_and_switch(mode))
