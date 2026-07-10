@@ -378,45 +378,62 @@ def main() -> None:
     def on_init_done() -> None:
         window.update_mode(state_manager.current_mode)
         tray.update_mode(state_manager.current_mode)
-        # 不覆盖已有的状态（发现服务可能已经更新了）
-        # 只设置初始状态，如果发现服务还没更新的话
-        logger.info(f"[DEBUG] on_init_done: win_online={window._win_status._online}")
-        if not window._win_status._online:
-            logger.info("[DEBUG] Setting win_online=False (not overwritten by discovery)")
+        is_mac = sys.platform == "darwin"
+        # 设置初始状态
+        if is_mac:
             window.update_device_status(
                 mac_online=True,
                 win_online=False,
                 deskflow_connected=False,
             )
-        # 定时 ping Windows 检测在线状态
+        else:
+            window.update_device_status(
+                mac_online=False,
+                win_online=True,
+                deskflow_connected=False,
+            )
+        # 定时 ping 对端检测在线状态
         from PySide6.QtCore import QTimer
         import subprocess
 
-        def _check_win_online():
-            # 如果发现服务已经标记为在线，不覆盖
-            if window._win_status._online:
-                return
-            win_host = config_manager.config.windows.host
-            if not win_host:
+        def _check_peer_online():
+            if is_mac:
+                # Mac 端 ping Windows
+                if window._win_status._online:
+                    return
+                host = config_manager.config.windows.host
+            else:
+                # Windows 端 ping Mac
+                if window._mac_status._online:
+                    return
+                host = config_manager.config.deskflow.server_host
+            if not host:
                 return
             try:
                 result = subprocess.run(
-                    ["ping", "-c", "1", "-W", "2", win_host],
+                    ["ping", "-n", "1", "-w", "2000", host] if not is_mac else ["ping", "-c", "1", "-W", "2", host],
                     capture_output=True, timeout=3,
                 )
                 online = result.returncode == 0
             except Exception:
                 online = False
             if online:
-                window.update_device_status(
-                    mac_online=True,
-                    win_online=True,
-                    deskflow_connected=window._deskflow_status._online,
-                )
+                if is_mac:
+                    window.update_device_status(
+                        mac_online=True,
+                        win_online=True,
+                        deskflow_connected=window._deskflow_status._online,
+                    )
+                else:
+                    window.update_device_status(
+                        mac_online=True,
+                        win_online=True,
+                        deskflow_connected=window._deskflow_status._online,
+                    )
 
-        win_timer = QTimer()
-        win_timer.timeout.connect(_check_win_online)
-        win_timer.start(5000)
+        peer_timer = QTimer()
+        peer_timer.timeout.connect(_check_peer_online)
+        peer_timer.start(5000)
 
         # 定时检查 Deskflow SSL 连接状态
         from PySide6.QtCore import Signal as QSignal, QObject
