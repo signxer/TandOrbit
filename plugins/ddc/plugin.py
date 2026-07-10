@@ -154,8 +154,8 @@ class DDCPlugin(Plugin):
         return await self._write_vcp(display_id, VCP_POWER_MODE, 1)
 
     async def power_off_monitor(self, monitor: str) -> bool:
-        """关闭指定显示器（使用完整 monitor 标识）"""
-        cmd = f'"{self._tool_path}" /SetValue "{monitor}" D6 5'
+        """关闭指定显示器（使用完整 monitor 标识，D6=4）"""
+        cmd = f'"{self._tool_path}" /SetValue "{monitor}" D6 4'
         try:
             proc = await asyncio.create_subprocess_shell(
                 cmd,

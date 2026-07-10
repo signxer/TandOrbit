@@ -487,22 +487,14 @@ class LocalDisplaySleepPrimaryAction(Action):
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
-        try:
-            # 优先用 DDC/CI 关闭主屏（只关主屏，不影响副屏）
-            if self._ddc and self._ddc_monitor:
-                ok = await self._ddc.power_off_monitor(self._ddc_monitor)
-                if ok:
-                    logger.info(f"Display {self._ddc_monitor} off via DDC/CI")
-                    return True
-            # 降级：MultiMonitorTool 断开 + SC_MONITORPOWER
-            if self._display:
-                await self._display.disable_display(self._primary_id)
-            import ctypes
-            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
-            await asyncio.sleep(2.0)
-            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
-            logger.info(f"Display {self._primary_id} off via SC_MONITORPOWER")
+        if not self._ddc or not self._ddc_monitor:
+            logger.warning("DDC not available for display off")
             return True
+        try:
+            ok = await self._ddc.power_off_monitor(self._ddc_monitor)
+            if ok:
+                logger.info(f"Display {self._ddc_monitor} off via DDC/CI")
+            return ok
         except Exception as e:
             logger.warning(f"Local display sleep error: {e}")
             return False
