@@ -257,8 +257,12 @@ def main() -> None:
         config_manager=config_manager,
     )
 
+    _peer_already_discovered = False
+
     def _on_peer_discovered(peer):
         """发现对端后在主线程更新 UI（config 已由 DiscoveryService 自动更新）"""
+        nonlocal _peer_already_discovered
+        _peer_already_discovered = True
         logger.info(f"[UI] Peer discovered: {peer['role']} at {peer['host']}")
         if peer["role"] == "windows":
             window.update_device_status(
@@ -385,19 +389,20 @@ def main() -> None:
         window.update_mode(state_manager.current_mode)
         tray.update_mode(state_manager.current_mode)
         is_mac = sys.platform == "darwin"
-        # 设置初始状态
-        if is_mac:
-            window.update_device_status(
-                mac_online=True,
-                win_online=False,
-                deskflow_connected=False,
-            )
-        else:
-            window.update_device_status(
-                mac_online=False,
-                win_online=True,
-                deskflow_connected=False,
-            )
+        # 设置初始状态（如果对端已被发现则保留其在线状态）
+        if not _peer_already_discovered:
+            if is_mac:
+                window.update_device_status(
+                    mac_online=True,
+                    win_online=False,
+                    deskflow_connected=False,
+                )
+            else:
+                window.update_device_status(
+                    mac_online=False,
+                    win_online=True,
+                    deskflow_connected=False,
+                )
         # 定时 ping 对端检测在线状态
         from PySide6.QtCore import QTimer
         import subprocess
