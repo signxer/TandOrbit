@@ -362,17 +362,19 @@ class AgentServer:
                 )
             mode = Mode[mode_name]
             # 检查是否已经是目标模式（避免重复操作）
+            from_mode = None
             if hasattr(self, "_state_manager") and self._state_manager:
                 if self._state_manager.current_mode == mode:
                     logger.info(f"Already in {mode_name} mode, skipping")
                     return JSONResponse(
                         AgentResponse(success=True, message=f"Already in {mode_name}").model_dump(mode="json")
                     )
+                from_mode = self._state_manager.current_mode
                 self._state_manager.force_set(mode)
                 logger.info(f"Mode synced from remote: {mode_name}")
             # Windows 端：执行显示器切换
             if platform.system() == "Windows":
-                await self._apply_display_mode(mode)
+                await self._apply_display_mode(mode, from_mode)
             # Mac 端：唤醒显示器
             elif platform.system() == "Darwin" and mode != Mode.WINDOWS:
                 await self._wake_mac_displays()
@@ -387,19 +389,24 @@ class AgentServer:
                 status_code=500,
             )
 
-    async def _apply_display_mode(self, mode: Mode) -> None:
+    async def _apply_display_mode(self, mode: Mode, from_mode: Mode | None = None) -> None:
         """根据模式加载对应的显示器配置"""
         import os
         from app.config import ConfigManager
         cfg = ConfigManager().load()
         tool = cfg.tools.monitor_switcher_path
 
+        # 从 Share 模式切出时：先关屏释放副屏给 Mac
+        if from_mode == Mode.SHARE and mode in (Mode.MAC, Mode.WINDOWS):
+            await self._turn_off_displays()
+            return
+
         if mode == Mode.WINDOWS and cfg.display.profile_extend:
             profile = cfg.display.profile_extend
         elif mode == Mode.SHARE and cfg.display.profile_clone:
             profile = cfg.display.profile_clone
         else:
-            # Mac 模式或其他：关屏
+            # Mac 模式或其他：唤醒显示器
             await self._wake_displays()
             return
 
@@ -418,6 +425,15 @@ class AgentServer:
                 logger.warning(f"Failed to load display profile: {e}")
         else:
             await self._wake_displays()
+
+    async def _turn_off_displays(self) -> None:
+        """关闭 Windows 显示器（SC_MONITORPOWER）"""
+        import ctypes
+        try:
+            ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            logger.info("Windows displays turned off (releasing for Mac)")
+        except Exception as e:
+            logger.warning(f"Windows display off error: {e}")
 
     async def _wake_displays(self) -> None:
         """唤醒 Windows 显示器"""

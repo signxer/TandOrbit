@@ -238,23 +238,28 @@ class Controller:
         if not self._state.set_target(target):
             return False
 
-        # 3. 构建管道（动态构建，不依赖预注册）
+        # 3. 先通知远端开始切换（让远端先释放资源）
+        if self._state.current_mode == Mode.SHARE:
+            await self._sync_mode_to_remote(target)
+
+        # 4. 构建管道（动态构建，不依赖预注册）
         pipeline = self._build_pipeline(self._state.current_mode, target)
 
-        # 4. 开始转换
+        # 5. 开始转换
         if not self._state.begin_transition():
             self._state.rollback_transition()
             return False
 
-        # 5. 执行管道
+        # 6. 执行管道
         success = await pipeline.execute()
 
-        # 6. 提交或回滚
+        # 7. 提交或回滚
         if success:
             self._state.commit_transition()
             logger.info(f"Mode switched to {target.name}")
-            # 通知远端同步模式
-            await self._sync_mode_to_remote(target)
+            # 再次通知远端确认模式（防止第3步的通知丢失）
+            if self._state.current_mode != Mode.SHARE:
+                await self._sync_mode_to_remote(target)
         else:
             self._state.rollback_transition()
             logger.error(f"Failed to switch to {target.name}, rolled back")
