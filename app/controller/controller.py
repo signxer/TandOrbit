@@ -116,8 +116,9 @@ class Controller:
         # === 切换到 Mac 模式 ===
         if to_mode == Mode.MAC:
             if is_mac:
-                # 从 Share 模式切回时，先接回副屏
+                # 从 Share 模式切回时，等 Windows 先关屏再接回副屏
                 if from_mode == Mode.SHARE:
+                    pipeline.add_action(DelayAction(2.0, "等待 Windows 释放副屏"))
                     pipeline.add_action(ReconnectSecondaryDisplay(
                         mac_display_plugin=display,
                         secondary_display_id=cfg.display.secondary_id,
@@ -133,16 +134,22 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # Windows 端：等待 Mac 准备好 → 停 Deskflow → 关屏（最后一步）
-                pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
-                pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                pipeline.add_action(LocalDisplayOffAction())
+                if from_mode == Mode.SHARE:
+                    # Windows 端：先关屏释放副屏，再停 Deskflow
+                    pipeline.add_action(LocalDisplayOffAction())
+                    pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+                else:
+                    # Windows 端：等待 Mac 准备好 → 停 Deskflow → 关屏
+                    pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
+                    pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+                    pipeline.add_action(LocalDisplayOffAction())
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
             if is_mac:
-                # 从 Share 模式切回时，先接回副屏
+                # 从 Share 模式切回时，等 Windows 先关屏再接回副屏
                 if from_mode == Mode.SHARE:
+                    pipeline.add_action(DelayAction(2.0, "等待 Windows 释放副屏"))
                     pipeline.add_action(ReconnectSecondaryDisplay(
                         mac_display_plugin=display,
                         secondary_display_id=cfg.display.secondary_id,
@@ -161,6 +168,9 @@ class Controller:
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
+                if from_mode == Mode.SHARE:
+                    # Windows 端：先关屏释放副屏，再启用扩展模式
+                    pipeline.add_action(LocalDisplayOffAction())
                 # Windows 端：启用所有显示器 + 停止 Deskflow
                 if cfg.display.profile_extend:
                     pipeline.add_action(LoadMonitorProfileAction(
