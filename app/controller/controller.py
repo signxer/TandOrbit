@@ -26,6 +26,7 @@ from app.scheduler.actions import (
     LocalDisplayOffAction,
     LocalDisplayOnAction,
     LocalDisplaySleepPrimaryAction,
+    ReconnectSecondaryDisplay,
     RestartDeskflowAction,
     SetAudioMacAction,
     SetWindowsDuplicateAction,
@@ -115,6 +116,12 @@ class Controller:
         # === 切换到 Mac 模式 ===
         if to_mode == Mode.MAC:
             if is_mac:
+                # 从 Share 模式切回时，先接回副屏
+                if from_mode == Mode.SHARE:
+                    pipeline.add_action(ReconnectSecondaryDisplay(
+                        mac_display_plugin=display,
+                        secondary_display_id=cfg.display.secondary_id,
+                    ))
                 # Mac 端：唤醒全部显示器 + 停止 Deskflow + 切音频
                 pipeline.add_action(
                     ConfigureDisplaysForMac(mac_display_plugin=display)
@@ -134,6 +141,12 @@ class Controller:
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
             if is_mac:
+                # 从 Share 模式切回时，先接回副屏
+                if from_mode == Mode.SHARE:
+                    pipeline.add_action(ReconnectSecondaryDisplay(
+                        mac_display_plugin=display,
+                        secondary_display_id=cfg.display.secondary_id,
+                    ))
                 # Mac 端：唤醒 Windows + 配置显示器
                 pipeline.add_action(WakeWindowsAction(
                     mac_address=cfg.windows.mac_address,

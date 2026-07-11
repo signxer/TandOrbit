@@ -252,7 +252,7 @@ class ConfigureDisplaysForWindows(Action):
 
 
 class ConfigureDisplaysForShare(Action):
-    """配置显示器：Mac 保留主屏，关闭副屏（让 Windows 接管）"""
+    """配置显示器：Mac 保留主屏，断开副屏连接（让 Windows 接管）"""
 
     def __init__(self, mac_display_plugin: Any = None, secondary_display_id: int = 2) -> None:
         super().__init__("Configure displays for Share mode")
@@ -274,18 +274,45 @@ class ConfigureDisplaysForShare(Action):
             except Exception as e:
                 logger.warning(f"Mac display wake error: {e}")
 
-        # 关闭 Mac 副屏（hardwareBacklight=off，不断开连接，需要 DDC 支持）
+        # 断开 Mac 副屏连接（让 Windows 独占）
         if self._mac_display:
             try:
-                ok = await self._mac_display.screen_off(self._secondary_id)
+                ok = await self._mac_display.disable_display(self._secondary_id)
                 if ok:
-                    logger.info(f"Mac secondary display (tagID={self._secondary_id}) screen off")
+                    logger.info(f"Mac secondary display (tagID={self._secondary_id}) disconnected")
                 else:
-                    logger.warning(f"Mac secondary display (tagID={self._secondary_id}) screen off failed")
+                    logger.warning(f"Mac secondary display (tagID={self._secondary_id}) disconnect failed")
             except Exception as e:
-                logger.warning(f"Mac secondary display off error: {e}")
+                logger.warning(f"Mac secondary display disconnect error: {e}")
 
         return True
+
+    async def rollback(self) -> bool:
+        return True
+
+
+class ReconnectSecondaryDisplay(Action):
+    """重新连接 Mac 副屏（从 Share 模式切回时第一步）"""
+
+    def __init__(self, mac_display_plugin: Any = None, secondary_display_id: int = 2) -> None:
+        super().__init__("Reconnect Mac secondary display")
+        self._mac_display = mac_display_plugin
+        self._secondary_id = secondary_display_id
+
+    async def execute(self) -> bool:
+        if not self._mac_display:
+            return True
+        logger.info(f"Reconnecting Mac secondary display (tagID={self._secondary_id})")
+        try:
+            ok = await self._mac_display.enable_display(self._secondary_id)
+            if ok:
+                logger.info(f"Mac secondary display (tagID={self._secondary_id}) reconnected")
+            else:
+                logger.warning(f"Mac secondary display (tagID={self._secondary_id}) reconnect failed")
+            return ok
+        except Exception as e:
+            logger.warning(f"Mac secondary display reconnect error: {e}")
+            return False
 
     async def rollback(self) -> bool:
         return True
