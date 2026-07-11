@@ -304,12 +304,10 @@ class MainWindow(QMainWindow):
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(12)
+        self._local_mode = local_mode
         for mode, (svg, text) in _MODE_CONFIG.items():
             btn = ModeButton(text, mode, svg, self._base_dir)
-            if mode == local_mode:
-                btn.set_status_only()
-            else:
-                btn.clicked.connect(lambda checked, m=mode: self._on_mode_clicked(m))
+            btn.clicked.connect(lambda checked, m=mode: self._on_mode_clicked(m))
             self._mode_buttons[mode] = btn
             self._mode_group.addButton(btn)
             btn_row.addWidget(btn)
