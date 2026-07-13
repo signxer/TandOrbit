@@ -11,7 +11,7 @@ import httpx
 from loguru import logger
 
 # 当前版本 — 与 pyproject.toml / GitHub Release tag 保持一致
-__version__ = "1.6.2"
+__version__ = "1.6.3"
 
 GITHUB_REPO = "signxer/TandOrbit"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
