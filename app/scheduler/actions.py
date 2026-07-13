@@ -494,26 +494,23 @@ class SetDisplayModeAction(Action):
 
 
 class LocalDisplaySleepPrimaryAction(Action):
-    """Windows 端关闭主屏（保留副屏给 Windows，主屏切到 Mac 输入源）"""
+    """Windows 端禁用主屏（保留副屏给 Windows）"""
 
-    def __init__(self, display_plugin: Any = None, ddc_plugin: Any = None,
-                 primary_id: int = 1, ddc_monitor: str = "") -> None:
+    def __init__(self, display_plugin: Any = None, primary_id: int = 1) -> None:
         super().__init__("Local display sleep primary")
         self._display = display_plugin
-        self._ddc = ddc_plugin
         self._primary_id = primary_id
-        self._ddc_monitor = ddc_monitor
 
     async def execute(self) -> bool:
         if platform.system() != "Windows":
             return True
-        if not self._ddc or not self._ddc_monitor:
-            logger.warning("DDC not available for display off")
-            return True
+        if not self._display:
+            logger.warning("No display plugin available")
+            return False
         try:
-            ok = await self._ddc.power_off_monitor(self._ddc_monitor)
+            ok = await self._display.disable_display(self._primary_id)
             if ok:
-                logger.info(f"Display {self._ddc_monitor} off via DDC/CI")
+                logger.info(f"Display {self._primary_id} disabled via MultiMonitorTool")
             return ok
         except Exception as e:
             logger.warning(f"Local display sleep error: {e}")
