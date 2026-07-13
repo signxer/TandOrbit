@@ -23,6 +23,7 @@ from app.scheduler.actions import (
     DelayAction,
     DisplaySleepAction,
     SetDisplayModeAction,
+    VerifyDisplayModeAction,
     LocalDisplayOffAction,
     LocalDisplayOnAction,
     LocalDisplaySleepPrimaryAction,
@@ -170,8 +171,10 @@ class Controller:
                 if from_mode == Mode.SHARE:
                     # Windows 端：先关屏释放副屏，再启用扩展模式
                     pipeline.add_action(LocalDisplayOffAction())
-                # Windows 端：扩展模式 + 停止 Deskflow
+                # Windows 端：扩展模式 + 等待就绪 + 启用显示器 + 停止 Deskflow
                 pipeline.add_action(SetDisplayModeAction("extend", display_plugin=display))
+                pipeline.add_action(DelayAction(3.0, "等待扩展模式生效"))
+                pipeline.add_action(VerifyDisplayModeAction("extend", display_plugin=display))
                 pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
@@ -193,9 +196,10 @@ class Controller:
                     )
                 )
             else:
-                # Windows 端：加载复制配置 → 等待 → 禁用主屏（主屏切到 Mac）
+                # Windows 端：切换复制模式 → 验证 → 禁用主屏（主屏切到 Mac）
                 pipeline.add_action(SetDisplayModeAction("clone", display_plugin=display))
-                pipeline.add_action(DelayAction(10.0, "等待显示器配置生效"))
+                pipeline.add_action(DelayAction(3.0, "等待复制模式生效"))
+                pipeline.add_action(VerifyDisplayModeAction("clone", display_plugin=display))
                 pipeline.add_action(LocalDisplaySleepPrimaryAction(
                     display_plugin=display,
                     primary_id=cfg.display.primary_id,

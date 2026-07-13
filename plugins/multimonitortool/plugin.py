@@ -17,6 +17,33 @@ from app.events import DisplayChangedEvent, EventBus
 from app.models import DisplayInfo
 from app.plugin_base import Plugin
 
+# SetDisplayConfig flags
+SDC_TOPOLOGY_SUPPRESS = 0x00000001
+SDC_TOPOLOGY_EXTEND = 0x00000002
+SDC_TOPOLOGY_CLONE = 0x00000004
+SDC_APPLY = 0x00000040
+
+# SetDisplayConfig return codes
+ERROR_SUCCESS = 0
+
+# PowerShell script to define SetDisplayConfig (written to temp file to avoid escaping issues)
+_SETDISPLAYCONFIG_SCRIPT = """\
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class DisplayConfig {{
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern int SetDisplayConfig(
+        uint numPathArrayElements,
+        IntPtr pathArray,
+        uint numModeInfoArrayElements,
+        IntPtr modeInfoArray,
+        uint flags
+    );
+}}
+"@
+"""
+
 
 class MultiMonitorToolPlugin(Plugin):
     """MultiMonitorTool 显示器控制插件
@@ -33,7 +60,6 @@ class MultiMonitorToolPlugin(Plugin):
         path = shutil.which("MultiMonitorTool.exe") or self._tool_path
         if not shutil.which(path):
             logger.warning(f"MultiMonitorTool not found at: {path}")
-            # 在 Windows Agent 端可能需要指定完整路径
         self._tool_path = path
         self._set_status(PluginStatus.INITIALIZED)
         logger.info("MultiMonitorTool plugin initialized")
@@ -91,88 +117,113 @@ class MultiMonitorToolPlugin(Plugin):
             resolution = row[0].strip()
             # Primary (index 5): Yes/No
             is_primary = row[5].strip().lower() == "yes" if len(row) > 5 else False
-            # 构建显示名称: "SDX32AC (3840x2160) PRIMARY" 或 "ICD3208 (3840x2160)"
+            # Active (index 4): Yes/No — 显示器是否启用
+            is_enabled = row[4].strip().lower() == "yes" if len(row) > 4 else True
+            # 构建显示名称
             label = f"{short_id} ({resolution})" if short_id else f"Display {display_id} ({resolution})"
             displays.append(
                 DisplayInfo(
                     id=display_id,
                     name=label,
                     is_primary=is_primary,
+                    is_enabled=is_enabled,
                 )
             )
         return displays
 
-    async def enable_display(self, display_id: int) -> bool:
-        """启用显示器"""
-        ok = await self._run_tool(f"/enable {display_id}")
-        success = ok is not None
-        if success:
-            self.event_bus.publish(
-                DisplayChangedEvent(
-                    display_id=display_id, enabled=True, source="MultiMonitorTool"
+    async def enable_display(self, display_id: int, retries: int = 2) -> bool:
+        """启用显示器（带重试）"""
+        for attempt in range(retries + 1):
+            ok = await self._run_tool(f"/enable {display_id}")
+            if ok is not None:
+                self.event_bus.publish(
+                    DisplayChangedEvent(
+                        display_id=display_id, enabled=True, source="MultiMonitorTool"
+                    )
                 )
-            )
-        return success
+                return True
+            if attempt < retries:
+                logger.warning(f"enable_display({display_id}) attempt {attempt + 1} failed, retrying...")
+                await asyncio.sleep(2.0)
+        return False
 
-    async def disable_display(self, display_id: int) -> bool:
-        """禁用显示器"""
-        ok = await self._run_tool(f"/disable {display_id}")
-        success = ok is not None
-        if success:
-            self.event_bus.publish(
-                DisplayChangedEvent(
-                    display_id=display_id, enabled=False, source="MultiMonitorTool"
+    async def disable_display(self, display_id: int, retries: int = 2) -> bool:
+        """禁用显示器（带重试）"""
+        for attempt in range(retries + 1):
+            ok = await self._run_tool(f"/disable {display_id}")
+            if ok is not None:
+                self.event_bus.publish(
+                    DisplayChangedEvent(
+                        display_id=display_id, enabled=False, source="MultiMonitorTool"
+                    )
                 )
-            )
-        return success
+                return True
+            if attempt < retries:
+                logger.warning(f"disable_display({display_id}) attempt {attempt + 1} failed, retrying...")
+                await asyncio.sleep(2.0)
+        return False
 
     async def set_primary(self, display_id: int) -> bool:
         """设置主显示器"""
         ok = await self._run_tool(f"/SetPrimary {display_id}")
         return ok is not None
 
-    async def set_extend_mode(self) -> bool:
+    async def set_extend_mode(self, retries: int = 2) -> bool:
         """设置扩展模式（通过 Windows API SetDisplayConfig）"""
-        script = (
-            "Add-Type @'\n"
-            "using System.Runtime.InteropServices;\n"
-            "public class Display {\n"
-            "  [DllImport(\"user32.dll\")] public static extern int SetDisplayConfig(uint numPathArrayElements, IntPtr pathArray, uint numModeInfoArrayElements, IntPtr modeInfoArray, uint flags);\n"
-            "}\n"
-            "'@\n"
-            "[Display]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, 0x00000002 -bor 0x00000040)"
-        )
-        ok = await self._run_powershell(script)
-        success = ok is not None
-        if success:
-            logger.info("Display mode set to extend")
-        return success
+        return await self._set_display_config(SDC_TOPOLOGY_EXTEND | SDC_APPLY, "extend", retries)
 
-    async def set_clone_mode(self) -> bool:
+    async def set_clone_mode(self, retries: int = 2) -> bool:
         """设置复制模式（通过 Windows API SetDisplayConfig）"""
-        script = (
-            "Add-Type @'\n"
-            "using System.Runtime.InteropServices;\n"
-            "public class Display {\n"
-            "  [DllImport(\"user32.dll\")] public static extern int SetDisplayConfig(uint numPathArrayElements, IntPtr pathArray, uint numModeInfoArrayElements, IntPtr modeInfoArray, uint flags);\n"
-            "}\n"
-            "'@\n"
-            "[Display]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, 0x00000001 -bor 0x00000040)"
-        )
-        ok = await self._run_powershell(script)
-        success = ok is not None
-        if success:
-            logger.info("Display mode set to clone")
-        return success
+        return await self._set_display_config(SDC_TOPOLOGY_CLONE | SDC_APPLY, "clone", retries)
+
+    async def verify_display_mode(self, expected: str, timeout: float = 5.0) -> bool:
+        """验证当前显示器拓扑是否匹配预期
+
+        通过 list_displays 检查显示器数量和状态来推断模式。
+        clone 模式下所有显示器分辨率相同且数量>=2，extend 下可能不同。
+        这是一个 best-effort 验证。
+        """
+        try:
+            displays = await self.list_displays()
+            enabled = [d for d in displays if d.is_enabled]
+            if expected == "clone":
+                # clone 模式至少需要 2 个启用的显示器
+                return len(enabled) >= 2
+            elif expected == "extend":
+                # extend 模式至少需要 1 个启用的显示器
+                return len(enabled) >= 1
+        except Exception as e:
+            logger.warning(f"Display mode verification failed: {e}")
+        return False
 
     # --- 内部方法 ---
+
+    async def _set_display_config(self, flags: int, mode_name: str, retries: int = 2) -> bool:
+        """调用 SetDisplayConfig API（带重试和返回值检查）"""
+        # 用临时 .ps1 文件避免引号转义问题
+        script = (
+            _SETDISPLAYCONFIG_SCRIPT
+            + f"$result = [DisplayConfig]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, 0x{flags:08X})\n"
+            + "if ($result -ne 0) { Write-Error \"SetDisplayConfig failed with code $result\"; exit 1 }\n"
+            + "Write-Output \"OK\"\n"
+        )
+
+        for attempt in range(retries + 1):
+            ok = await self._run_powershell_script(script)
+            if ok is not None:
+                logger.info(f"Display mode set to {mode_name}")
+                return True
+            if attempt < retries:
+                logger.warning(f"set_{mode_name}_mode attempt {attempt + 1} failed, retrying...")
+                await asyncio.sleep(2.0)
+        logger.error(f"Failed to set display mode to {mode_name} after {retries + 1} attempts")
+        return False
 
     async def _run_tool(self, args: str) -> str | None:
         """执行 MultiMonitorTool 命令（通过 PowerShell 包装，避免 GUI 程序阻塞）"""
         import os
         import tempfile
 
-        # 读取类命令（/scomma, /sxml 等）需要输出文件；操作类命令（/enable, /disable 等）不需要
         is_read = args.strip().lower().startswith("/s")
         if is_read:
             output_file = os.path.join(tempfile.gettempdir(), "tandorbit_mmt_out.csv")
@@ -206,24 +257,37 @@ class MultiMonitorToolPlugin(Plugin):
             logger.error(f"Tool exception: {e}")
             return None
 
-    async def _run_powershell(self, script: str) -> str | None:
-        """执行 PowerShell 脚本"""
-        cmd = f'powershell -NoProfile -Command "{script}"'
-        logger.debug(f"Running PowerShell: {script[:100]}...")
+    async def _run_powershell_script(self, script: str) -> str | None:
+        """执行 PowerShell 脚本（通过临时 .ps1 文件，避免转义问题）"""
+        import os
+        import tempfile
+
+        # 写入临时 .ps1 文件，彻底避免命令行转义问题
+        ps1_path = os.path.join(tempfile.gettempdir(), "tandorbit_mmt_script.ps1")
         try:
+            with open(ps1_path, "w", encoding="utf-8") as f:
+                f.write(script)
+
+            cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ps1_path}"'
+            logger.debug(f"Running PowerShell script: {ps1_path}")
             proc = await asyncio.create_subprocess_shell(
                 cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20.0)
             if proc.returncode != 0:
                 logger.error(f"PowerShell error: {stderr.decode(errors='replace').strip()}")
                 return None
             return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
-            logger.error(f"PowerShell timeout")
+            logger.error("PowerShell timeout")
             return None
         except Exception as e:
             logger.error(f"PowerShell exception: {e}")
             return None
+        finally:
+            try:
+                os.remove(ps1_path)
+            except OSError:
+                pass

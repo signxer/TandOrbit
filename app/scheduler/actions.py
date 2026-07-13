@@ -62,7 +62,7 @@ class WakeWindowsAction(Action):
             return True
         logger.info("Windows Agent not online, will send WoL")
 
-        # 发送 WoL
+        # 发送 WoL（直接用 UDP 广播，不依赖插件实例）
         if not self._mac_address:
             self.error = "No MAC address configured for WoL"
             logger.error(self.error)
@@ -70,9 +70,13 @@ class WakeWindowsAction(Action):
 
         logger.info(f"Sending WoL to {self._mac_address}")
         try:
-            from plugins.wol.plugin import WoLPlugin
-            wol = WoLPlugin(None)  # type: ignore
-            await wol.wake(self._mac_address)
+            mac_bytes = bytes.fromhex(self._mac_address.replace(":", "").replace("-", ""))
+            magic = b"\xff" * 6 + mac_bytes * 16
+            import socket
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.sendto(magic, ("<broadcast>", 9))
+            logger.info("WoL packet sent")
         except Exception as e:
             self.error = f"Failed to send WoL: {e}"
             logger.error(self.error)
@@ -520,6 +524,40 @@ class LocalDisplaySleepPrimaryAction(Action):
         return True
 
 
+class VerifyDisplayModeAction(Action):
+    """验证显示器拓扑模式是否生效，失败则重试切换"""
+
+    def __init__(self, mode: str, display_plugin: Any = None,
+                 max_attempts: int = 3, interval: float = 3.0) -> None:
+        super().__init__(f"Verify display mode: {mode}")
+        self._mode = mode
+        self._display = display_plugin
+        self._max_attempts = max_attempts
+        self._interval = interval
+
+    async def execute(self) -> bool:
+        if not self._display:
+            return True
+        for attempt in range(self._max_attempts):
+            ok = await self._display.verify_display_mode(self._mode)
+            if ok:
+                logger.info(f"Display mode '{self._mode}' verified")
+                return True
+            if attempt < self._max_attempts - 1:
+                logger.warning(f"Display mode '{self._mode}' not verified, retrying switch...")
+                # 重新切换
+                if self._mode == "extend":
+                    await self._display.set_extend_mode()
+                elif self._mode == "clone":
+                    await self._display.set_clone_mode()
+                await asyncio.sleep(self._interval)
+        logger.error(f"Display mode '{self._mode}' verification failed after {self._max_attempts} attempts")
+        return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
 class LocalDisplayOnAction(Action):
     """本地启用所有显示器（Windows 端切回 Windows 模式时使用）"""
 
@@ -531,13 +569,14 @@ class LocalDisplayOnAction(Action):
         if platform.system() != "Windows":
             return True
         try:
-            # 先用 MultiMonitorTool 启用所有显示器
+            # 先用 MultiMonitorTool 启用所有被禁用的显示器
             if self._display:
                 displays = await self._display.list_displays()
                 for d in displays:
                     if not d.is_enabled:
                         logger.info(f"Enabling display {d.id}: {d.name}")
                         await self._display.enable_display(d.id)
+                        await asyncio.sleep(1.0)  # 等待显示器就绪
             # 再用 Windows API 唤醒
             import ctypes
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
