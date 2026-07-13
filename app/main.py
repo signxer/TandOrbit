@@ -219,7 +219,7 @@ def main() -> None:
     if sys.platform == "win32":
         window.setWindowIcon(QIcon(str(_resource_path("resources/icon.ico"))))
     else:
-        window.setWindowIcon(QIcon(str(_resource_path("icon.png"))))
+        window.setWindowIcon(QIcon(str(_resource_path("resources/icon.png"))))
     window.show()
 
     # 创建系统托盘

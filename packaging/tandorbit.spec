@@ -17,7 +17,6 @@ a = Analysis(
     datas=[
         (os.path.join(ROOT, 'config'), 'config'),
         (os.path.join(ROOT, 'resources'), 'resources'),
-        (os.path.join(ROOT, 'resources', 'icon.png'), '.'),
     ],
     hiddenimports=[
         'PySide6.QtCore',

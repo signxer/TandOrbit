@@ -31,7 +31,7 @@ jobs:
         run: python -m pytest tests/ -v
 
       - name: Build macOS executable
-        run: pyinstaller -F -w --icon=resources/icon.icns --add-data="resources/icon.png:." --add-data="resources:resources" --add-data="config:config" --runtime-hook=packaging/runtime_hook.py --name=TandOrbit app/main.py
+        run: pyinstaller -F -w --icon=resources/icon.icns --add-data="resources:resources" --add-data="config:config" --runtime-hook=packaging/runtime_hook.py --name=TandOrbit app/main.py
 
       - name: Create .app bundle
         run: |

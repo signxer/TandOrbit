@@ -260,7 +260,7 @@ class MainWindow(QMainWindow):
 
         # --- 图标 + 标题 ---
         icon_label = QLabel()
-        pixmap = QPixmap(str(self._base_dir / "icon.png"))
+        pixmap = QPixmap(str(self._base_dir / "resources" / "icon.png"))
         # Retina: 用 2 倍物理像素渲染，避免模糊
         dpr = self.devicePixelRatio()
         size = int(48 * dpr)
