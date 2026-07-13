@@ -419,35 +419,6 @@ class SettingsDialog(QDialog):
         form.addRow("", hint)
         layout.addRow(group)
 
-        # MonitorSwitcher 配置文件（仅 Windows）
-        if platform.system() != "Darwin":
-            profile_group = QGroupBox("MonitorSwitcher 配置文件")
-            profile_form = QFormLayout(profile_group)
-            default_dir = Path.home() / "AppData" / "Roaming" / "MonitorSwitcher" / "Profiles"
-            self._profile_extend = QLineEdit()
-            self._profile_extend.setPlaceholderText(str(default_dir / "extend.xml"))
-            ext_btn = QPushButton("浏览...")
-            ext_btn.setFixedWidth(70)
-            ext_btn.clicked.connect(lambda: self._browse_xml(self._profile_extend))
-            ext_row = QHBoxLayout()
-            ext_row.addWidget(self._profile_extend)
-            ext_row.addWidget(ext_btn)
-            self._profile_clone = QLineEdit()
-            self._profile_clone.setPlaceholderText(str(default_dir / "clone.xml"))
-            clone_btn = QPushButton("浏览...")
-            clone_btn.setFixedWidth(70)
-            clone_btn.clicked.connect(lambda: self._browse_xml(self._profile_clone))
-            clone_row = QHBoxLayout()
-            clone_row.addWidget(self._profile_clone)
-            clone_row.addWidget(clone_btn)
-            profile_hint = QLabel("使用 MonitorSwitcher.exe -save:profile.xml 保存当前配置")
-            profile_hint.setStyleSheet("color: #888; font-size: 11px;")
-            profile_hint.setWordWrap(True)
-            profile_form.addRow("扩展模式:", ext_row)
-            profile_form.addRow("复制模式:", clone_row)
-            profile_form.addRow("", profile_hint)
-            layout.addRow(profile_group)
-
         return widget
 
     def _create_deskflow_tab(self) -> QWidget:
@@ -530,16 +501,6 @@ class SettingsDialog(QDialog):
         df_row.addWidget(df_btn)
         form.addRow("Deskflow:", df_row)
 
-        # MonitorSwitcher
-        self._ms_path = QLineEdit()
-        ms_btn = QPushButton("浏览...")
-        ms_btn.setFixedWidth(70)
-        ms_btn.clicked.connect(lambda: self._browse_file(self._ms_path))
-        ms_row = QHBoxLayout()
-        ms_row.addWidget(self._ms_path)
-        ms_row.addWidget(ms_btn)
-        form.addRow("MonitorSwitcher:", ms_row)
-
         hint = QLabel("填写完整路径或确保工具所在目录已加入 PATH 环境变量")
         hint.setStyleSheet("color: #888; font-size: 11px;")
         hint.setWordWrap(True)
@@ -554,16 +515,6 @@ class SettingsDialog(QDialog):
 
         path, _ = QFileDialog.getOpenFileName(
             self, "选择可执行文件", "", "可执行文件 (*.exe);;所有文件 (*)"
-        )
-        if path:
-            target.setText(path)
-
-    def _browse_xml(self, target: QLineEdit) -> None:
-        """打开 XML 配置文件选择对话框"""
-        from PySide6.QtWidgets import QFileDialog
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, "选择配置文件", "", "XML 文件 (*.xml);;所有文件 (*)"
         )
         if path:
             target.setText(path)
@@ -613,9 +564,6 @@ class SettingsDialog(QDialog):
         self._set_combo_value(self._primary_id, str(cfg.display.primary_id))
         self._set_combo_value(self._secondary_id, str(cfg.display.secondary_id))
         self._set_combo_value(self._share_display, str(cfg.display.share_display_id))
-        if platform.system() != "Darwin":
-            self._profile_extend.setText(cfg.display.profile_extend)
-            self._profile_clone.setText(cfg.display.profile_clone)
 
         # 音频 — 尝试从插件获取列表
         self._refresh_audio()
@@ -633,7 +581,6 @@ class SettingsDialog(QDialog):
             self._mmt_path.setText(cfg.tools.multimonitortool_path)
             self._cmm_path.setText(cfg.tools.controlmymonitor_path)
             self._df_path.setText(cfg.tools.deskflow_path)
-            self._ms_path.setText(cfg.tools.monitor_switcher_path)
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         """设置 ComboBox 的值，按 data 匹配（data 是 ID 字符串）"""
@@ -727,8 +674,6 @@ class SettingsDialog(QDialog):
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,
                 "share_display_id": share_display_id,
-                "profile_extend": self._profile_extend.text() if not is_mac else "",
-                "profile_clone": self._profile_clone.text() if not is_mac else "",
             },
             "deskflow": {
                 "server_host": self._df_host.text(),
@@ -751,7 +696,6 @@ class SettingsDialog(QDialog):
                 "multimonitortool_path": self._mmt_path.text(),
                 "controlmymonitor_path": self._cmm_path.text(),
                 "deskflow_path": self._df_path.text(),
-                "monitor_switcher_path": self._ms_path.text(),
             }
         self._config_manager.update(updates)
         self.accept()

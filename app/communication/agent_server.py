@@ -390,40 +390,27 @@ class AgentServer:
             )
 
     async def _apply_display_mode(self, mode: Mode, from_mode: Mode | None = None) -> None:
-        """根据模式加载对应的显示器配置"""
-        import os
-        from app.config import ConfigManager
-        cfg = ConfigManager().load()
-        tool = cfg.tools.monitor_switcher_path
-
+        """根据模式切换显示器拓扑"""
         # 从 Share 模式切出时：先关屏释放副屏给 Mac
         if from_mode == Mode.SHARE and mode in (Mode.MAC, Mode.WINDOWS):
             await self._turn_off_displays()
             return
 
-        if mode == Mode.WINDOWS and cfg.display.profile_extend:
-            profile = cfg.display.profile_extend
-        elif mode == Mode.SHARE and cfg.display.profile_clone:
-            profile = cfg.display.profile_clone
-        else:
-            # Mac 模式或其他：唤醒显示器
+        if not self._display_plugin:
             await self._wake_displays()
             return
 
-        if profile and os.path.exists(profile):
-            import asyncio
-            try:
-                cmd = f'"{tool}" -load:"{profile}"'
-                proc = await asyncio.create_subprocess_shell(
-                    cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                await asyncio.wait_for(proc.communicate(), timeout=15.0)
-                logger.info(f"Loaded display profile: {profile}")
-            except Exception as e:
-                logger.warning(f"Failed to load display profile: {e}")
-        else:
+        try:
+            if mode == Mode.WINDOWS:
+                await self._display_plugin.set_extend_mode()
+                logger.info("Display mode set to extend")
+            elif mode == Mode.SHARE:
+                await self._display_plugin.set_clone_mode()
+                logger.info("Display mode set to clone")
+            else:
+                await self._wake_displays()
+        except Exception as e:
+            logger.warning(f"Failed to set display mode: {e}")
             await self._wake_displays()
 
     async def _turn_off_displays(self) -> None:

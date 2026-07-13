@@ -21,9 +21,6 @@ class DisplayConfig(BaseModel):
     share_display_id: int = 2  # 共享模式下留给 Windows 的显示器 ID
     ddc_primary_monitor: str = r"\\.\DISPLAY2\Monitor0"  # DDC/CI 主屏标识
     ddc_secondary_monitor: str = r"\\.\DISPLAY2\Monitor1"  # DDC/CI 副屏标识
-    # MonitorSwitcher 配置文件路径（Windows）
-    profile_extend: str = ""  # 扩展模式配置
-    profile_clone: str = ""   # 复制模式配置
 
 
 class WindowsConfig(BaseModel):
@@ -71,7 +68,6 @@ class ToolsConfig(BaseModel):
     multimonitortool_path: str = "MultiMonitorTool.exe"
     controlmymonitor_path: str = "ControlMyMonitor.exe"
     deskflow_path: str = "deskflow.exe"
-    monitor_switcher_path: str = "MonitorSwitcher.exe"
 
 
 import platform

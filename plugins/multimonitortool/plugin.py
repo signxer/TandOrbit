@@ -131,28 +131,39 @@ class MultiMonitorToolPlugin(Plugin):
         ok = await self._run_tool(f"/SetPrimary {display_id}")
         return ok is not None
 
-    async def set_duplicate(self, source_id: int, target_id: int) -> bool:
-        """设置显示器复制模式"""
-        # 使用 Windows API 设置复制模式
+    async def set_extend_mode(self) -> bool:
+        """设置扩展模式（通过 Windows API SetDisplayConfig）"""
         script = (
-            "Add-Type -AssemblyName System.Windows.Forms; "
-            "[System.Windows.Forms.Screen]::AllScreens | "
-            "ForEach-Object { $_.Bounds }"
+            "Add-Type @'\n"
+            "using System.Runtime.InteropServices;\n"
+            "public class Display {\n"
+            "  [DllImport(\"user32.dll\")] public static extern int SetDisplayConfig(uint numPathArrayElements, IntPtr pathArray, uint numModeInfoArrayElements, IntPtr modeInfoArray, uint flags);\n"
+            "}\n"
+            "'@\n"
+            "[Display]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, 0x00000002 -bor 0x00000040)"
         )
-        # 实际上 MultiMonitorTool 没有直接的 duplicate 命令
-        # 需要用 Windows 显示设置 API，这里先用简化的实现
         ok = await self._run_powershell(script)
-        return ok is not None
+        success = ok is not None
+        if success:
+            logger.info("Display mode set to extend")
+        return success
 
-    async def set_extend(self) -> bool:
-        """设置扩展模式"""
+    async def set_clone_mode(self) -> bool:
+        """设置复制模式（通过 Windows API SetDisplayConfig）"""
         script = (
-            "Add-Type -AssemblyName System.Windows.Forms; "
-            "[System.Windows.Forms.Screen]::AllScreens | "
-            "ForEach-Object { $_.Bounds }"
+            "Add-Type @'\n"
+            "using System.Runtime.InteropServices;\n"
+            "public class Display {\n"
+            "  [DllImport(\"user32.dll\")] public static extern int SetDisplayConfig(uint numPathArrayElements, IntPtr pathArray, uint numModeInfoArrayElements, IntPtr modeInfoArray, uint flags);\n"
+            "}\n"
+            "'@\n"
+            "[Display]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, 0x00000001 -bor 0x00000040)"
         )
         ok = await self._run_powershell(script)
-        return ok is not None
+        success = ok is not None
+        if success:
+            logger.info("Display mode set to clone")
+        return success
 
     # --- 内部方法 ---
 
