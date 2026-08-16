@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.3] - 修复版本号
+
+- **修复运行时版本号停留在 2.0.0**：`app/updater.py` 的 `__version__` 在 v2.1.x 发布时未同步
+  更新，导致更新检查用旧版本号对比 GitHub tag，永远提示"发现新版本"。
+- **版本号统一管理**：`packaging/tandorbit.spec` 与 CI 的 Info.plist 改为从
+  `app/updater.py` 读取版本，打包版本与运行时版本不再可能不一致。
+- 新增版本一致性测试（updater ↔ pyproject.toml）。
+
 ## [2.1.2] - 修复设置对话框崩溃
 
 - **修复 `NameError: name 'threading' is not defined`**：`_refresh_displays`/`_refresh_audio`

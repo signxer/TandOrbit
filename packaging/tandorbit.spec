@@ -8,6 +8,10 @@ import sys
 # spec 在 packaging/ 下，项目根目录是上一级
 ROOT = os.path.dirname(os.path.normpath(SPECPATH))
 
+# 版本号统一从 app/updater.py 读取，避免打包版本与运行时版本不一致
+sys.path.insert(0, ROOT)
+from app.updater import __version__ as APP_VERSION  # noqa: E402
+
 block_cipher = None
 
 a = Analysis(
@@ -79,7 +83,7 @@ if sys.platform == 'darwin':
         icon=os.path.join(ROOT, 'resources', 'icon.icns'),
         bundle_identifier='com.tandorbit.app',
         info_plist={
-            'CFBundleShortVersionString': '2.1.1',
+            'CFBundleShortVersionString': APP_VERSION,
             'CFBundleName': 'TandOrbit',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # 后台运行，不显示 Dock 图标
