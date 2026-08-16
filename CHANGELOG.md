@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.4] - 修复 CI
+
+- **锁定 pytest<9**：pytest 9.1.1 + pytest-asyncio 1.4.0 在 Windows 上存在兼容问题
+  （测试全过但进程仍以 exit code 1 结束，CI 误报失败）。pytest-asyncio 1.4.0 为
+  最新版且只保证支持 pytest 8.x，故锁定 `pytest<9`、`pytest-asyncio<2`。
+
 ## [2.1.3] - 修复版本号
 
 - **修复运行时版本号停留在 2.0.0**：`app/updater.py` 的 `__version__` 在 v2.1.x 发布时未同步
