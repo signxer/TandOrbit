@@ -28,7 +28,12 @@ jobs:
           pip install pyinstaller
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        shell: bash
+        run: |
+          python -m pytest tests/ -v --tb=long -ra 2>&1
+          code=$?
+          echo "PYTEST_EXIT_CODE=$code"
+          exit $code
 
       - name: Build macOS executable
         run: pyinstaller -F -w --icon=resources/icon.icns --add-data="resources:resources" --add-data="config:config" --hidden-import=sqlite3 --hidden-import=_sqlite3 --runtime-hook=packaging/runtime_hook.py --name=TandOrbit app/main.py
@@ -101,7 +106,12 @@ jobs:
           pip install pyinstaller
 
       - name: Run tests
-        run: python -m pytest tests/ -v
+        shell: bash
+        run: |
+          python -m pytest tests/ -v --tb=long -ra 2>&1
+          code=$?
+          echo "PYTEST_EXIT_CODE=$code"
+          exit $code
 
       - name: Build Windows GUI
         run: pyinstaller packaging/tandorbit.spec --noconfirm
