@@ -462,21 +462,33 @@ class Controller:
         except Exception as e:
             logger.warning(f"Remote state verification failed: {e}")
             return False
+
+        # 失败时输出远端枚举详情，帮助诊断 DISPLAY 编号与配置不符
+        summary = ", ".join(
+            f"DISPLAY{d.id}({'on' if d.is_enabled else 'off'}{',primary' if d.is_primary else ''})"
+            for d in displays
+        )
         by_id = {d.id: d for d in displays}
         cfg = self._config.config
         primary = by_id.get(cfg.display.primary_id)
         secondary = by_id.get(cfg.display.secondary_id)
         if target == Mode.WINDOWS:
             if primary is None or not primary.is_enabled:
-                logger.warning(f"Remote verify: primary DISPLAY{cfg.display.primary_id} not enabled")
+                logger.warning(
+                    f"Remote verify: primary DISPLAY{cfg.display.primary_id} "
+                    f"{'missing' if primary is None else 'not enabled'} | 远端枚举: [{summary}]"
+                )
                 return False
             if secondary is not None and not secondary.is_enabled:
-                logger.warning(f"Remote verify: secondary DISPLAY{cfg.display.secondary_id} not enabled")
+                logger.warning(
+                    f"Remote verify: secondary DISPLAY{cfg.display.secondary_id} not enabled | "
+                    f"远端枚举: [{summary}]"
+                )
                 return False
             return True
         if target == Mode.SHARE:
             if primary is None or secondary is None:
-                logger.warning("Remote verify: primary/secondary display missing")
+                logger.warning(f"Remote verify: primary/secondary display missing | 远端枚举: [{summary}]")
                 return False
             if primary.is_enabled:
                 logger.warning(f"Remote verify: primary DISPLAY{cfg.display.primary_id} still enabled in SHARE")

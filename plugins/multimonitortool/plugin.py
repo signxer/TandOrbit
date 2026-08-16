@@ -253,18 +253,29 @@ class MultiMonitorToolPlugin(Plugin):
             logger.warning(f"Display mode verification failed: {e}")
             return False
 
+        # 失败时输出完整枚举详情，方便诊断 DISPLAY 编号与配置不符的问题
+        def _enumerate_summary() -> str:
+            return ", ".join(
+                f"DISPLAY{d.id}({'on' if d.is_enabled else 'off'}{',primary' if d.is_primary else ''})"
+                for d in displays
+            )
+
         by_id = {d.id: d for d in displays}
         if expected == "extend":
             primary = by_id.get(primary_id)
             if primary is None or not primary.is_enabled:
                 logger.warning(
                     f"extend verify failed: primary DISPLAY{primary_id} "
-                    f"{'missing' if primary is None else 'not enabled'}"
+                    f"{'missing' if primary is None else 'not enabled'} | "
+                    f"当前枚举: [{_enumerate_summary()}]"
                 )
                 return False
             secondary = by_id.get(secondary_id)
             if secondary is not None and not secondary.is_enabled:
-                logger.warning(f"extend verify failed: secondary DISPLAY{secondary_id} not enabled")
+                logger.warning(
+                    f"extend verify failed: secondary DISPLAY{secondary_id} not enabled | "
+                    f"当前枚举: [{_enumerate_summary()}]"
+                )
                 return False
             return True
         elif expected == "share":
@@ -273,7 +284,8 @@ class MultiMonitorToolPlugin(Plugin):
             if primary is None or secondary is None:
                 logger.warning(
                     f"share verify failed: primary DISPLAY{primary_id}={primary is not None}, "
-                    f"secondary DISPLAY{secondary_id}={secondary is not None}"
+                    f"secondary DISPLAY{secondary_id}={secondary is not None} | "
+                    f"当前枚举: [{_enumerate_summary()}]"
                 )
                 return False
             if primary.is_enabled:
