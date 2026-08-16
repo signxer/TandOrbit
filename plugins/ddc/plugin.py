@@ -285,3 +285,20 @@ class DDCPlugin(Plugin):
         except Exception as e:
             logger.error(f"ControlMyMonitor write error: {e}")
             return False
+
+    def _monitor_str(self, display_id: int) -> str:
+        """获取显示器完整标识（ControlMyMonitor 用，如 \\\\.\\DISPLAY1\\Monitor0）
+
+        优先使用配置中的 ddc_primary_monitor / ddc_secondary_monitor，
+        否则按 DISPLAY 编号生成。
+        """
+        try:
+            from app.config import ConfigManager
+            display_cfg = ConfigManager().load().display
+            if display_id == display_cfg.primary_id:
+                return display_cfg.ddc_primary_monitor
+            if display_id == display_cfg.secondary_id:
+                return display_cfg.ddc_secondary_monitor
+        except Exception:
+            pass
+        return rf"\\.\DISPLAY{display_id}\Monitor0"

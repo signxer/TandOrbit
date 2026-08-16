@@ -6,13 +6,13 @@
 from __future__ import annotations
 
 import platform
-from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
 from typing import Any, Callable
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config import AppConfig, ConfigManager
+from app.config import ConfigManager
 from app.communication.discovery import DiscoveryService
 from app.gui.main_window import _COLORS, _FONT
 
@@ -123,6 +123,9 @@ def event_key_name(key: int) -> str:
 class SettingsDialog(QDialog):
     """设置对话框"""
 
+    _displays_loaded = Signal(list)
+    _audio_loaded = Signal(list)
+
     def __init__(
         self,
         config_manager: ConfigManager,
@@ -135,6 +138,8 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("TandOrbit 设置")
         self.setMinimumWidth(540)
         self.setStyleSheet(self._build_stylesheet())
+        self._displays_loaded.connect(self._populate_displays)
+        self._audio_loaded.connect(self._populate_audio)
         self._setup_ui()
         self._load_values()
 
@@ -293,6 +298,12 @@ class SettingsDialog(QDialog):
 
         # 按钮
         btn_layout = QHBoxLayout()
+        export_btn = QPushButton("导出配置…")
+        export_btn.clicked.connect(self._export_config)
+        import_btn = QPushButton("导入配置…")
+        import_btn.clicked.connect(self._import_config)
+        btn_layout.addWidget(export_btn)
+        btn_layout.addWidget(import_btn)
         btn_layout.addStretch()
         save_btn = QPushButton("保存")
         save_btn.clicked.connect(self._save)
@@ -301,6 +312,37 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
+
+    def _export_config(self) -> None:
+        """导出配置到用户指定路径"""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "导出配置", "tandorbit-config.yaml", "YAML 配置 (*.yaml)"
+        )
+        if path and self._config_manager.export_to(path):
+            QMessageBox.information(self, "导出配置", f"配置已导出到：\n{path}")
+        elif path:
+            QMessageBox.warning(self, "导出配置", "导出失败，请检查目标路径。")
+
+    def _import_config(self) -> None:
+        """从用户指定路径导入配置"""
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "导入配置", "", "YAML 配置 (*.yaml);;所有文件 (*)"
+        )
+        if not path:
+            return
+        if QMessageBox.question(
+            self, "导入配置", "导入将覆盖当前配置并重新加载，确定继续？"
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        if self._config_manager.import_from(path):
+            self._load_values()  # 刷新界面
+            QMessageBox.information(self, "导入配置", "配置已导入并重新加载。")
+        else:
+            QMessageBox.warning(self, "导入配置", "导入失败，请检查文件格式。")
 
     def _create_connection_tab(self) -> QWidget:
         """连接配置标签页"""
@@ -418,6 +460,43 @@ class SettingsDialog(QDialog):
         form.addRow("", row)
         form.addRow("", hint)
         layout.addRow(group)
+
+        # --- DDC/CI 输入源切换（可选，默认关闭） ---
+        ddc_group = QGroupBox("DDC/CI 输入源切换（可选）")
+        ddc_form = QFormLayout(ddc_group)
+        self._ddc_enabled = QCheckBox("启用：切换时主动把显示器输入源切到对应主机")
+        ddc_form.addRow(self._ddc_enabled)
+
+        _INPUT_SOURCES = [
+            ("（不切换）", ""),
+            ("HDMI 1", "hdmi1"),
+            ("HDMI 2", "hdmi2"),
+            ("DisplayPort 1", "dp1"),
+            ("DisplayPort 2", "dp2"),
+            ("USB-C", "usbc"),
+            ("VGA", "vga"),
+        ]
+        self._ddc_inputs: list[tuple[QComboBox, QComboBox]] = []
+        for label in ("DDC 显示器 1", "DDC 显示器 2"):
+            mac_combo = QComboBox()
+            win_combo = QComboBox()
+            for text, value in _INPUT_SOURCES:
+                mac_combo.addItem(text, value)
+                win_combo.addItem(text, value)
+            row = QHBoxLayout()
+            row.addWidget(mac_combo)
+            row.addWidget(win_combo)
+            self._ddc_inputs.append((mac_combo, win_combo))
+            ddc_form.addRow(f"{label}（Mac / Windows 输入）:", row)
+
+        ddc_hint = QLabel(
+            "需要 m1ddc（Mac）或 ControlMyMonitor（Windows）。"
+            "DDC 显示器编号指 DDC 工具枚举的序号，通常 1=主屏 2=副屏，请按实际调整。"
+        )
+        ddc_hint.setStyleSheet("color: #888; font-size: 11px;")
+        ddc_hint.setWordWrap(True)
+        ddc_form.addRow("", ddc_hint)
+        layout.addRow(ddc_group)
 
         return widget
 
@@ -559,16 +638,18 @@ class SettingsDialog(QDialog):
         self._df_port.setValue(cfg.deskflow.server_port)
         self._df_client.setText(cfg.deskflow.client_name)
 
-        # 显示器 — 尝试从插件获取列表
+        # 显示器 — 异步从插件获取列表（选择恢复在 _populate_displays 中完成）
         self._refresh_displays()
-        self._set_combo_value(self._primary_id, str(cfg.display.primary_id))
-        self._set_combo_value(self._secondary_id, str(cfg.display.secondary_id))
-        self._set_combo_value(self._share_display, str(cfg.display.share_display_id))
 
-        # 音频 — 尝试从插件获取列表
+        # DDC/CI 输入源切换
+        self._ddc_enabled.setChecked(cfg.display.ddc_switch_enabled)
+        for i, (mac_combo, win_combo) in enumerate(self._ddc_inputs, start=1):
+            entry = cfg.display.input_map.get(str(i), {})
+            self._set_combo_data(mac_combo, entry.get("mac", ""))
+            self._set_combo_data(win_combo, entry.get("windows", ""))
+
+        # 音频 — 异步从插件获取列表（选择恢复在 _populate_audio 中完成）
         self._refresh_audio()
-        self._set_combo_value(self._mac_audio, cfg.audio.mac_output)
-        self._set_combo_value(self._win_audio, cfg.audio.windows_output)
 
         # 快捷键
         default_mod = "Ctrl+Option" if platform.system() == "Darwin" else "Ctrl+Alt"
@@ -590,26 +671,45 @@ class SettingsDialog(QDialog):
         else:
             combo.setEditText(value)
 
+    def _set_combo_data(self, combo: QComboBox, value: str) -> None:
+        """按 data 值选中下拉项（无匹配时选中第一项：不切换）"""
+        idx = combo.findData(value)
+        combo.setCurrentIndex(idx if idx >= 0 else 0)
+
     def _refresh_displays(self) -> None:
-        """从插件刷新显示器列表"""
-        cfg = self._config_manager.config
-        displays = []
+        """从插件异步刷新显示器列表（后台线程，避免冻结 GUI）"""
+        self._primary_id.clear()
+        self._secondary_id.clear()
+        self._share_display.clear()
 
-        if self._plugin_provider:
-            plugins = self._plugin_provider()
-            display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
-            if display_plugin:
+        if not self._plugin_provider:
+            self._populate_displays([])
+            return
+        plugins = self._plugin_provider()
+        display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
+        if not display_plugin:
+            self._populate_displays([])
+            return
+
+        def _worker() -> None:
+            import asyncio
+            import threading
+            try:
+                coro = display_plugin.list_displays()
+                loop = asyncio.new_event_loop()
                 try:
-                    result = display_plugin.list_displays()
-                    import asyncio
-                    if asyncio.iscoroutine(result):
-                        loop = asyncio.new_event_loop()
-                        result = loop.run_until_complete(result)
-                        loop.close()
-                    displays = result or []
-                except Exception:
-                    displays = []
+                    result = loop.run_until_complete(coro)
+                finally:
+                    loop.close()
+                self._displays_loaded.emit(result or [])
+            except Exception:
+                self._displays_loaded.emit([])
 
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _populate_displays(self, displays: list) -> None:
+        """后台线程返回显示器列表后填充下拉框并恢复当前选择"""
+        cfg = self._config_manager.config
         self._primary_id.clear()
         self._secondary_id.clear()
         self._share_display.clear()
@@ -628,31 +728,46 @@ class SettingsDialog(QDialog):
                 self._secondary_id.addItem(label, str(did))
                 self._share_display.addItem(label, str(did))
 
+        self._set_combo_value(self._primary_id, str(cfg.display.primary_id))
+        self._set_combo_value(self._secondary_id, str(cfg.display.secondary_id))
+        self._set_combo_value(self._share_display, str(cfg.display.share_display_id))
+
     def _refresh_audio(self) -> None:
-        """从插件刷新音频设备列表"""
+        """从插件异步刷新音频设备列表（后台线程，避免冻结 GUI）"""
         if not self._plugin_provider:
             return
         plugins = self._plugin_provider()
         audio_plugin = plugins.get("audio")
         if not audio_plugin:
             return
-        try:
-            devices = audio_plugin.list_devices()
-            import asyncio
-            if asyncio.iscoroutine(devices):
-                loop = asyncio.new_event_loop()
-                devices = loop.run_until_complete(devices)
-                loop.close()
-        except Exception:
-            devices = []
 
-        for combo in (self._mac_audio, self._win_audio):
+        def _worker() -> None:
+            import asyncio
+            import threading
+            try:
+                coro = audio_plugin.list_devices()
+                loop = asyncio.new_event_loop()
+                try:
+                    result = loop.run_until_complete(coro)
+                finally:
+                    loop.close()
+                self._audio_loaded.emit(result or [])
+            except Exception:
+                self._audio_loaded.emit([])
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _populate_audio(self, devices: list) -> None:
+        """后台线程返回音频设备列表后填充下拉框并恢复选择"""
+        cfg = self._config_manager.config
+        for combo, key in ((self._mac_audio, "mac_output"), (self._win_audio, "windows_output")):
             current = combo.currentText()
             combo.clear()
             for name in devices:
                 combo.addItem(name)
-            if current:
-                self._set_combo_value(combo, current)
+            target = current or getattr(cfg.audio, key)
+            if target:
+                self._set_combo_value(combo, target)
 
     def _save(self) -> None:
         """保存配置"""
@@ -660,6 +775,22 @@ class SettingsDialog(QDialog):
         secondary_id = int(self._secondary_id.currentData() or self._secondary_id.currentText() or 2)
         share_display_id = int(self._share_display.currentData() or self._share_display.currentText() or 2)
         is_mac = platform.system() == "Darwin"
+
+        # 校验快捷键：不能为空、不能互相冲突
+        hotkeys = {
+            "switch_mac": self._hk_mac.text().strip(),
+            "switch_windows": self._hk_win.text().strip(),
+            "switch_share": self._hk_share.text().strip(),
+        }
+        for name, hk in hotkeys.items():
+            if not hk:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "快捷键未设置", f"请为 {name} 录制快捷键。")
+                return
+        if len(set(hotkeys.values())) != 3:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "快捷键冲突", "三个模式快捷键不能重复，请重新录制。")
+            return
 
         # 本机端口
         if is_mac:
@@ -674,6 +805,8 @@ class SettingsDialog(QDialog):
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,
                 "share_display_id": share_display_id,
+                "ddc_switch_enabled": self._ddc_enabled.isChecked(),
+                "input_map": self._collect_input_map(),
             },
             "deskflow": {
                 "server_host": self._df_host.text(),
@@ -685,9 +818,9 @@ class SettingsDialog(QDialog):
                 "windows_output": self._win_audio.currentText(),
             },
             "hotkeys": {
-                "switch_mac": self._hk_mac.text(),
-                "switch_windows": self._hk_win.text(),
-                "switch_share": self._hk_share.text(),
+                "switch_mac": hotkeys["switch_mac"],
+                "switch_windows": hotkeys["switch_windows"],
+                "switch_share": hotkeys["switch_share"],
             },
         }
 
@@ -699,3 +832,18 @@ class SettingsDialog(QDialog):
             }
         self._config_manager.update(updates)
         self.accept()
+
+    def _collect_input_map(self) -> dict[str, dict[str, str]]:
+        """收集 DDC 输入映射：{"1": {"mac": "hdmi1", "windows": "dp1"}, ...}"""
+        result: dict[str, dict[str, str]] = {}
+        for i, (mac_combo, win_combo) in enumerate(self._ddc_inputs, start=1):
+            mac_val = mac_combo.currentData() or ""
+            win_val = win_combo.currentData() or ""
+            entry: dict[str, str] = {}
+            if mac_val:
+                entry["mac"] = mac_val
+            if win_val:
+                entry["windows"] = win_val
+            if entry:
+                result[str(i)] = entry
+        return result

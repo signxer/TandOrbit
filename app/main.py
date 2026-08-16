@@ -12,7 +12,7 @@ from pathlib import Path
 from loguru import logger
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 _MSGBOX_STYLE = """
     QPushButton {
@@ -50,7 +50,6 @@ from app.state.state_machine import StateManager
 
 # 插件导入
 from plugins.betterdisplay.plugin import BetterDisplayPlugin
-from plugins.clipboard.plugin import ClipboardPlugin
 from plugins.ddc.plugin import DDCPlugin
 from plugins.deskflow.plugin import DeskflowPlugin
 from plugins.wol.plugin import WoLPlugin
@@ -180,7 +179,6 @@ def main() -> None:
     if sys.platform == "darwin":
         plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
         plugin_registry.register(WoLPlugin(event_bus))
-        plugin_registry.register(ClipboardPlugin(event_bus))
     else:
         from plugins.audio.plugin import AudioPlugin
         from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
@@ -230,6 +228,11 @@ def main() -> None:
         tray_icon.setIsMask(True)  # macOS 模板图标，自动适配深色/浅色菜单栏
     tray = TrayIcon(tray_icon)
     tray.show()
+
+    # 全局快捷键（双平台：macOS CGEventTap / Windows RegisterHotKey）
+    from app.hotkeys import GlobalHotkeyManager
+    hotkey_manager = GlobalHotkeyManager()
+    hotkey_manager.set_hotkeys(config.hotkeys)
 
     # 创建设置对话框
     settings_dialog = SettingsDialog(
@@ -298,9 +301,44 @@ def main() -> None:
         settings_dialog._load_values()  # 刷新当前配置
         if settings_dialog.exec():  # 用户点了保存
             window.update_hotkeys(config_manager.config.hotkeys)
+            hotkey_manager.set_hotkeys(config_manager.config.hotkeys)  # 全局快捷键热更新
 
     window.sleep_display_requested.connect(lambda: worker.run_async(controller.sleep_display()))
     window.settings_requested.connect(open_settings)
+
+    # 应用内日志查看器：loguru sink → Qt 信号（跨线程安全）
+    from app.gui.log_viewer import LogViewer
+    log_viewer = LogViewer()
+
+    def _loguru_to_viewer(message) -> None:
+        record = message.record
+        log_viewer.log_message.emit(str(record["message"]), record["level"].name)
+
+    logger.add(_loguru_to_viewer, level="INFO")
+
+    def open_log_viewer() -> None:
+        """打开应用内日志查看器"""
+        log_viewer.show()
+        log_viewer.raise_()
+        log_viewer.activateWindow()
+
+    tray.view_log_requested.connect(open_log_viewer)
+
+    # 切换记录看板（成功率 + 最近历史）
+    from app.gui.switch_history_dialog import SwitchHistoryDialog
+    switch_history_dialog = SwitchHistoryDialog(
+        history_provider=controller.get_switch_history,
+        rate_provider=controller.get_success_rate,
+    )
+
+    def open_switch_history() -> None:
+        switch_history_dialog._refresh()
+        switch_history_dialog.show()
+        switch_history_dialog.raise_()
+        switch_history_dialog.activateWindow()
+
+    tray.switch_history_requested.connect(open_switch_history)
+
     def show_and_activate():
         window.show()
         window.raise_()
@@ -311,7 +349,7 @@ def main() -> None:
     tray.quit_requested.connect(app.quit)
 
     # --- 检查更新 ---
-    from app.updater import check_update, get_download_assets, __version__
+    from app.updater import check_update, __version__
 
     def _show_update_dialog(release: dict) -> None:
         """显示更新对话框"""
@@ -403,52 +441,49 @@ def main() -> None:
                     win_online=True,
                     deskflow_connected=False,
                 )
-        # 定时 ping 对端检测在线状态
+        # 定时探测对端在线状态（通过 Agent HTTP，而非 ping：ping 可能被防火墙拦截，
+        # 且同步 subprocess 会阻塞 GUI 线程）
         from PySide6.QtCore import QTimer
-        import subprocess
+        from PySide6.QtCore import Signal as QSignal, QObject
 
-        def _check_peer_online():
+        class _PeerProbe(QObject):
+            result = QSignal(bool)
+
+        peer_probe = _PeerProbe()
+
+        def _on_peer_probe(online: bool) -> None:
             if is_mac:
-                # Mac 端 ping Windows
-                if window._win_status._online:
-                    return
-                host = config_manager.config.windows.host
+                if online != window._win_status._online:
+                    window.update_device_status(
+                        mac_online=True,
+                        win_online=online,
+                        deskflow_connected=window._deskflow_status._online,
+                    )
             else:
-                # Windows 端 ping Mac
-                if window._mac_status._online:
-                    return
-                host = config_manager.config.deskflow.server_host
-            if not host:
-                return
-            try:
-                result = subprocess.run(
-                    ["ping", "-n", "1", "-w", "2000", host] if not is_mac else ["ping", "-c", "1", "-W", "2", host],
-                    capture_output=True, timeout=3,
-                )
-                online = result.returncode == 0
-            except Exception:
-                online = False
-            if online:
-                if is_mac:
+                if online != window._mac_status._online:
                     window.update_device_status(
-                        mac_online=True,
+                        mac_online=online,
                         win_online=True,
                         deskflow_connected=window._deskflow_status._online,
                     )
-                else:
-                    window.update_device_status(
-                        mac_online=True,
-                        win_online=True,
-                        deskflow_connected=window._deskflow_status._online,
-                    )
+
+        peer_probe.result.connect(_on_peer_probe)
+
+        async def _probe_peer() -> None:
+            if is_mac:
+                online = await controller.check_windows_agent()
+            else:
+                online = await controller.check_mac_agent()
+            peer_probe.result.emit(online)
+
+        def _check_peer_online() -> None:
+            worker.run_async(_probe_peer())
 
         peer_timer = QTimer()
         peer_timer.timeout.connect(_check_peer_online)
         peer_timer.start(5000)
 
         # 定时检查 Deskflow SSL 连接状态
-        from PySide6.QtCore import Signal as QSignal, QObject
-
         class _DeskflowChecker(QObject):
             result = QSignal(bool)
 
@@ -482,6 +517,7 @@ def main() -> None:
     # 切换完成后刷新 UI 按钮状态（确保与实际模式一致）
     class _ModeSyncSignals(QObject):
         sync = QSignal()
+        error = QSignal(str)
 
     _mode_sync = _ModeSyncSignals()
 
@@ -489,10 +525,21 @@ def main() -> None:
         window.update_mode(controller.current_mode)
         tray.update_mode(controller.current_mode)
 
+    def _on_switch_error(message: str) -> None:
+        _msgbox(QMessageBox.Icon.Warning, "切换失败", message, window)
+
     _mode_sync.sync.connect(_sync_mode_ui)
+    _mode_sync.error.connect(_on_switch_error)
 
     # 模式切换：检查 Windows 是否在线，离线时询问是否 WoL
     def on_mode_switch(mode: Mode) -> None:
+        # 切换中或已是目标模式：直接忽略（避免误弹"切换失败"）
+        if controller.is_transitioning:
+            logger.info(f"Ignoring mode switch to {mode.name}: transition in progress")
+            return
+        if mode == controller.current_mode:
+            logger.info(f"Ignoring mode switch to {mode.name}: already in this mode")
+            return
         if mode == Mode.WINDOWS or mode == Mode.SHARE:
             win_online = window._win_status._online
             if not win_online:
@@ -515,11 +562,16 @@ def main() -> None:
                 else:
                     _sync_mode_ui()
                 return
-        # 显示加载动画
+        # 显示加载动画，切换期间禁用全部模式按钮
         window.set_mode_loading(mode, True)
+        window.set_modes_enabled(False)
         async def _switch_and_sync():
             try:
-                await controller.switch_mode(mode)
+                ok = await controller.switch_mode(mode)
+                if not ok:
+                    _mode_sync.error.emit(
+                        f"切换到 {mode.name} 失败：{controller.last_error}"
+                    )
             finally:
                 _mode_sync.sync.emit()
         worker.run_async(_switch_and_sync())
@@ -533,10 +585,15 @@ def main() -> None:
             logger.info(f"WoL sent to {cfg.windows.mac_address}")
         # 等待 Windows 上线
         import asyncio
+        window.set_modes_enabled(False)
         for _ in range(30):  # 最多等 60 秒
             if await controller.check_windows_agent():
                 logger.info("Windows is online, switching mode")
-                await controller.switch_mode(mode)
+                ok = await controller.switch_mode(mode)
+                if not ok:
+                    _mode_sync.error.emit(
+                        f"切换到 {mode.name} 失败：{controller.last_error}"
+                    )
                 _mode_sync.sync.emit()
                 return
             await asyncio.sleep(2)
@@ -547,6 +604,22 @@ def main() -> None:
 
     window.mode_switch_requested.connect(on_mode_switch)
     tray.mode_switch_requested.connect(on_mode_switch)
+
+    # 全局快捷键 → 模式切换
+    _ACTION_TO_MODE = {
+        "switch_mac": Mode.MAC,
+        "switch_windows": Mode.WINDOWS,
+        "switch_share": Mode.SHARE,
+    }
+
+    def _on_hotkey(action: str) -> None:
+        mode = _ACTION_TO_MODE.get(action)
+        if mode is not None:
+            on_mode_switch(mode)
+
+    hotkey_manager.hotkey_pressed.connect(_on_hotkey)
+    if not hotkey_manager.start() and sys.platform == "darwin":
+        logger.warning("全局快捷键未启用：请到 系统设置 → 隐私与安全性 → 辅助功能 允许 TandOrbit")
 
     logger.info(f"TandOrbit started on {'macOS' if sys.platform == 'darwin' else 'Windows'}")
     app.exec()

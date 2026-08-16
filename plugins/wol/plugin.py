@@ -52,9 +52,12 @@ class WoLPlugin(Plugin):
     async def wake(self, mac_address: str | None = None, broadcast_ip: str | None = None) -> bool:
         """发送 WOL 魔术包唤醒远程计算机
 
+        未指定 broadcast_ip 时向本机所有网卡的子网定向广播地址发送，
+        避免 255.255.255.255 在部分网络（多网卡/子网隔离）不可达。
+
         Args:
             mac_address: MAC 地址（如 AA:BB:CC:DD:EE:FF）
-            broadcast_ip: 广播地址
+            broadcast_ip: 广播地址（默认自动探测）
 
         Returns:
             bool: 是否发送成功
@@ -68,11 +71,21 @@ class WoLPlugin(Plugin):
 
         try:
             magic_packet = self._create_magic_packet(mac)
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.sendto(magic_packet, (broadcast, self._port))
-            sock.close()
-            logger.info(f"WOL packet sent to {mac} via {broadcast}")
+            targets = [broadcast] if broadcast_ip else self._broadcast_addresses()
+            sent = 0
+            for target in targets:
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    sock.sendto(magic_packet, (target, self._port))
+                    sock.close()
+                    sent += 1
+                except Exception as e:
+                    logger.warning(f"WOL to {target} failed: {e}")
+            if sent == 0:
+                logger.error("WOL packet failed to all targets")
+                return False
+            logger.info(f"WOL packet sent to {mac} via {targets}")
             if self.event_bus:
                 self.event_bus.publish(
                     DeviceStatusChangedEvent(
@@ -83,6 +96,31 @@ class WoLPlugin(Plugin):
         except Exception as e:
             logger.error(f"Failed to send WOL packet: {e}")
             return False
+
+    @staticmethod
+    def _broadcast_addresses() -> list[str]:
+        """收集本机各网卡的子网定向广播地址（255.255.255.255 兜底）"""
+        import struct
+
+        addrs = ["255.255.255.255"]
+        try:
+            import psutil
+            for name, snics in psutil.net_if_addrs().items():
+                if name.startswith(("lo", "utun", "awdl", "llw", "bridge", "vmenet")):
+                    continue
+                for snic in snics:
+                    if snic.family.name != "AF_INET" or not snic.address or not snic.netmask:
+                        continue
+                    try:
+                        ip_int = struct.unpack("!I", socket.inet_aton(snic.address))[0]
+                        mask_int = struct.unpack("!I", socket.inet_aton(snic.netmask))[0]
+                        bcast_int = ip_int | (~mask_int & 0xFFFFFFFF)
+                        addrs.append(socket.inet_ntoa(struct.pack("!I", bcast_int)))
+                    except (OSError, struct.error):
+                        continue
+        except Exception:
+            pass
+        return list(dict.fromkeys(addrs))
 
     async def check_host_alive(self, host: str, timeout: float = 3.0) -> bool:
         """检查主机是否在线（通过 TCP 连接测试）"""

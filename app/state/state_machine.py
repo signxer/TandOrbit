@@ -14,10 +14,9 @@ from app.events import EventBus, ModeChangedEvent
 # 合法的状态转换表
 VALID_TRANSITIONS: dict[Mode, set[Mode]] = {
     Mode.UNKNOWN: {Mode.MAC, Mode.WINDOWS},
-    Mode.MAC: {Mode.WINDOWS, Mode.SHARE, Mode.PRESENTATION},
-    Mode.WINDOWS: {Mode.MAC, Mode.SHARE, Mode.PRESENTATION},
-    Mode.SHARE: {Mode.MAC, Mode.WINDOWS, Mode.PRESENTATION},
-    Mode.PRESENTATION: {Mode.MAC, Mode.WINDOWS, Mode.SHARE},
+    Mode.MAC: {Mode.WINDOWS, Mode.SHARE},
+    Mode.WINDOWS: {Mode.MAC, Mode.SHARE},
+    Mode.SHARE: {Mode.MAC, Mode.WINDOWS},
 }
 
 

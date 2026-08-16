@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from loguru import logger
@@ -30,8 +31,8 @@ from app.scheduler.actions import (
     ReconnectSecondaryDisplay,
     RestartDeskflowAction,
     SetAudioMacAction,
-    SetWindowsDuplicateAction,
     StopDeskflowAction,
+    SwitchDisplayInputsAction,
     WakeWindowsAction,
 )
 from app.scheduler.scheduler import Scheduler
@@ -60,6 +61,12 @@ class Controller:
         self._config = config_manager
         self._win_client: MacClient | None = None  # Mac → Windows
         self._mac_client: MacClient | None = None  # Windows → Mac
+        self.last_error: str = ""  # 最近一次切换失败原因（供 GUI 展示）
+        # 切换历史（内存保留，供"切换记录"看板）
+        from collections import deque
+        import threading
+        self._switch_history: deque[dict[str, object]] = deque()
+        self._history_lock = threading.Lock()
 
     @property
     def current_mode(self) -> Mode:
@@ -75,9 +82,17 @@ class Controller:
         return getattr(self, "_init_results", [])
 
     def _get_win_client(self) -> MacClient:
-        """获取或创建 Windows Agent 客户端（Mac → Windows）"""
-        if self._win_client is None:
-            cfg = self._config.config.windows
+        """获取或创建 Windows Agent 客户端（Mac → Windows）
+
+        自动发现服务可能更新对端 host/port，配置变化时重建客户端，
+        避免一直连接旧地址。
+        """
+        cfg = self._config.config.windows
+        if (
+            self._win_client is None
+            or self._win_client.host != cfg.host
+            or self._win_client.port != cfg.port
+        ):
             self._win_client = MacClient(
                 host=cfg.host, port=cfg.port, timeout=cfg.timeout
             )
@@ -85,8 +100,12 @@ class Controller:
 
     def _get_mac_client(self) -> MacClient:
         """获取或创建 Mac Agent 客户端（Windows → Mac）"""
-        if self._mac_client is None:
-            cfg = self._config.config
+        cfg = self._config.config
+        if (
+            self._mac_client is None
+            or self._mac_client.host != cfg.mac.host
+            or self._mac_client.port != cfg.mac.port
+        ):
             self._mac_client = MacClient(
                 host=cfg.mac.host, port=cfg.mac.port, timeout=cfg.windows.timeout
             )
@@ -108,10 +127,18 @@ class Controller:
 
         cfg = self._config.config
         # Mac 端用 win_client 调 Windows，Windows 端用 mac_client 调 Mac
-        remote_client = self._get_win_client() if is_mac else self._get_mac_client()
         deskflow = self._get_plugin("deskflow")
         display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
         audio = self._get_plugin("audio")
+        # DDC/CI 输入源切换（配置驱动，默认关闭）
+        ddc = self._get_plugin("ddc")
+        input_map: dict[str, dict[str, str]] = (
+            cfg.display.input_map if cfg.display.ddc_switch_enabled else {}
+        )
+
+        # 显示器拓扑的目标状态（供验证动作使用）
+        primary_id = cfg.display.primary_id
+        secondary_id = cfg.display.secondary_id
 
         # === 切换到 Mac 模式 ===
         if to_mode == Mode.MAC:
@@ -121,8 +148,11 @@ class Controller:
                     pipeline.add_action(DelayAction(2.0, "等待 Windows 释放副屏"))
                     pipeline.add_action(ReconnectSecondaryDisplay(
                         mac_display_plugin=display,
-                        secondary_display_id=cfg.display.secondary_id,
+                        secondary_display_id=secondary_id,
                     ))
+                # 可选：DDC/CI 主动把显示器输入源切到 Mac
+                if input_map:
+                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "mac"))
                 # Mac 端：唤醒全部显示器 + 停止 Deskflow + 切音频
                 pipeline.add_action(
                     ConfigureDisplaysForMac(mac_display_plugin=display)
@@ -134,54 +164,55 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                if from_mode == Mode.SHARE:
-                    # Windows 端：先关屏释放副屏，再停 Deskflow
-                    pipeline.add_action(LocalDisplayOffAction())
-                    pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                else:
-                    # Windows 端：等待 Mac 准备好 → 停 Deskflow → 关屏
-                    pipeline.add_action(DelayAction(1.0, "等待 Mac 唤醒"))
-                    pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
-                    pipeline.add_action(LocalDisplayOffAction())
+                # 可选：DDC/CI 主动把显示器输入源切到 Mac
+                if input_map:
+                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "mac"))
+                # Windows 端：停 Deskflow → 关屏（电源关，信号消失后显示器切到 Mac）
+                pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
+                pipeline.add_action(LocalDisplayOffAction())
 
         # === 切换到 Windows 模式 ===
         elif to_mode == Mode.WINDOWS:
             if is_mac:
-                # 从 Share 模式切回时，等 Windows 先关屏再接回副屏
+                # 从 Share 模式切回时，等 Windows 先配置好再处理副屏
                 if from_mode == Mode.SHARE:
                     pipeline.add_action(DelayAction(2.0, "等待 Windows 释放副屏"))
                     pipeline.add_action(ReconnectSecondaryDisplay(
                         mac_display_plugin=display,
-                        secondary_display_id=cfg.display.secondary_id,
+                        secondary_display_id=secondary_id,
                     ))
-                # Mac 端：唤醒 Windows + 配置显示器
+                # Mac 端：唤醒 Windows + 休眠 Mac 显示器（远端拓扑由模式同步负责）
                 pipeline.add_action(WakeWindowsAction(
                     mac_address=cfg.windows.mac_address,
                     agent_host=cfg.windows.host,
                     agent_port=cfg.windows.port,
                     timeout=60.0,
                 ))
+                # 可选：DDC/CI 主动把显示器输入源切到 Windows
+                if input_map:
+                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "windows"))
                 pipeline.add_action(
-                    ConfigureDisplaysForWindows(
-                        mac_display_plugin=display, win_client=remote_client
-                    )
+                    ConfigureDisplaysForWindows(mac_display_plugin=display)
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
-                if from_mode == Mode.SHARE:
-                    # Windows 端：先关屏释放副屏，再启用扩展模式
-                    pipeline.add_action(LocalDisplayOffAction())
-                # Windows 端：扩展模式 + 等待就绪 + 启用显示器 + 停止 Deskflow
-                pipeline.add_action(SetDisplayModeAction("extend", display_plugin=display))
-                pipeline.add_action(DelayAction(3.0, "等待扩展模式生效"))
-                pipeline.add_action(VerifyDisplayModeAction("extend", display_plugin=display))
+                # 可选：DDC/CI 主动把显示器输入源切到 Windows
+                if input_map:
+                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "windows"))
+                # Windows 端：启用所有显示器 → 扩展拓扑 → 验证
                 pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
+                pipeline.add_action(SetDisplayModeAction("extend", display_plugin=display))
+                pipeline.add_action(DelayAction(2.0, "等待扩展模式生效"))
+                pipeline.add_action(VerifyDisplayModeAction(
+                    "extend", display_plugin=display,
+                    primary_id=primary_id, secondary_id=secondary_id,
+                ))
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
 
         # === 切换到共享模式 ===
         elif to_mode == Mode.SHARE:
             if is_mac:
-                # Mac 端：唤醒 Windows + 唤醒全部显示器
+                # Mac 端：唤醒 Windows（如从 Mac 模式）+ 断开 Mac 副屏
                 if from_mode == Mode.MAC:
                     pipeline.add_action(WakeWindowsAction(
                         mac_address=cfg.windows.mac_address,
@@ -192,17 +223,20 @@ class Controller:
                 pipeline.add_action(
                     ConfigureDisplaysForShare(
                         mac_display_plugin=display,
-                        secondary_display_id=cfg.display.secondary_id,
+                        secondary_display_id=secondary_id,
                     )
                 )
             else:
-                # Windows 端：切换复制模式 → 验证 → 禁用主屏（主屏切到 Mac）
-                pipeline.add_action(SetDisplayModeAction("clone", display_plugin=display))
-                pipeline.add_action(DelayAction(3.0, "等待复制模式生效"))
-                pipeline.add_action(VerifyDisplayModeAction("clone", display_plugin=display))
+                # Windows 端：扩展拓扑 → 禁用主屏（主屏留给 Mac）→ 验证
+                pipeline.add_action(SetDisplayModeAction("extend", display_plugin=display))
+                pipeline.add_action(DelayAction(2.0, "等待扩展模式生效"))
                 pipeline.add_action(LocalDisplaySleepPrimaryAction(
                     display_plugin=display,
-                    primary_id=cfg.display.primary_id,
+                    primary_id=primary_id,
+                ))
+                pipeline.add_action(VerifyDisplayModeAction(
+                    "share", display_plugin=display,
+                    primary_id=primary_id, secondary_id=secondary_id,
                 ))
             pipeline.add_action(RestartDeskflowAction(deskflow_plugin=deskflow))
 
@@ -218,45 +252,188 @@ class Controller:
             bool: 是否切换成功
         """
         logger.info(f"Controller: switch_mode({target.name})")
+        self.last_error = ""
+        start_time = time.monotonic()
+        from_mode = self._state.current_mode
 
         # 1. 检查是否可以转换
         if not self._state.can_transition(target):
             logger.error(
                 f"Cannot transition: {self._state.current_mode.name} -> {target.name}"
             )
+            self.last_error = f"非法状态转换: {self._state.current_mode.name} -> {target.name}"
             return False
 
         # 2. 设置目标状态
         if not self._state.set_target(target):
+            self.last_error = f"无法设置目标状态: {target.name}"
             return False
 
-        # 3. 先通知远端开始切换（让远端先释放资源）
-        if self._state.current_mode == Mode.SHARE:
-            await self._sync_mode_to_remote(target)
+        # 3. 切换前预检（对端在线、本机显示器插件可用）
+        if not await self._precheck(target):
+            self._state.rollback_transition()
+            logger.error(f"Precheck failed for {target.name}: {self.last_error}")
+            return False
 
-        # 4. 构建管道（动态构建，不依赖预注册）
+        # 4. 预同步远端（先让远端完成配置，再操作本机，避免两端互相干扰）
+        await self._sync_mode_to_remote(target)
+
+        # 5. 构建管道（动态构建，不依赖预注册）
         pipeline = self._build_pipeline(self._state.current_mode, target)
 
-        # 5. 开始转换
+        # 6. 开始转换
         if not self._state.begin_transition():
             self._state.rollback_transition()
+            self.last_error = "系统正在切换中，请稍后再试"
             return False
 
-        # 6. 执行管道
+        # 7. 执行管道
         success = await pipeline.execute()
-
-        # 7. 提交或回滚
-        if success:
-            self._state.commit_transition()
-            logger.info(f"Mode switched to {target.name}")
-            # 再次通知远端确认模式（防止第3步的通知丢失）
-            if self._state.current_mode != Mode.SHARE:
-                await self._sync_mode_to_remote(target)
-        else:
+        if not success:
             self._state.rollback_transition()
-            logger.error(f"Failed to switch to {target.name}, rolled back")
+            action_name, action_error = pipeline.last_failure or ("Pipeline", "未知错误")
+            self.last_error = f"动作 {action_name} 失败: {action_error}"
+            logger.error(f"Failed to switch to {target.name}: {self.last_error}")
+            self._record_switch(from_mode, target, False, start_time, self.last_error)
+            return False
 
-        return success
+        # 8. 提交状态
+        self._state.commit_transition()
+
+        # 9. 后同步确认 + 端到端验证（带重试）
+        if not await self._post_sync_and_verify(target):
+            self._state.rollback_transition()
+            logger.error(f"Remote display verification failed for {target.name}: {self.last_error}")
+            self._record_switch(from_mode, target, False, start_time, self.last_error)
+            return False
+
+        # 10. 持久化上次模式（启动恢复用）
+        try:
+            self._config.config.last_mode = target.name
+            self._config.save()
+        except Exception as e:
+            logger.warning(f"Failed to persist last_mode: {e}")
+
+        self._record_switch(from_mode, target, True, start_time, "")
+        logger.info(f"Mode switched to {target.name}")
+        return True
+
+    async def _precheck(self, target: Mode) -> bool:
+        """切换前预检：目标模式依赖的对端 Agent 与本机显示器插件可用性"""
+        import platform
+
+        is_mac = platform.system() == "Darwin"
+        if target in (Mode.WINDOWS, Mode.SHARE) and is_mac:
+            if not await self.check_windows_agent():
+                self.last_error = "预检失败：Windows Agent 不在线，无法切换到目标模式"
+                return False
+        elif target == Mode.MAC and not is_mac:
+            if not await self.check_mac_agent():
+                self.last_error = "预检失败：Mac Agent 不在线，无法切换到 Mac 模式"
+                return False
+
+        display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
+        status = getattr(display, "status", None) if display else None
+        if display is None or status is None or getattr(status, "name", "") == "ERROR":
+            self.last_error = "预检失败：显示器控制插件不可用"
+            return False
+        return True
+
+    # ---------- 切换历史 ----------
+
+    def _record_switch(
+        self,
+        from_mode: Mode,
+        to_mode: Mode,
+        success: bool,
+        start_time: float,
+        error: str,
+    ) -> None:
+        """记录一次切换（内存保留最近 100 条）"""
+        import datetime
+
+        record = {
+            "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "from": from_mode.name,
+            "to": to_mode.name,
+            "success": success,
+            "duration_ms": round((time.monotonic() - start_time) * 1000),
+            "error": error,
+        }
+        with self._history_lock:
+            self._switch_history.append(record)
+            while len(self._switch_history) > 100:
+                self._switch_history.popleft()
+
+    def get_switch_history(self) -> list[dict[str, object]]:
+        """获取切换历史（最新在前）"""
+        with self._history_lock:
+            return list(reversed(self._switch_history))
+
+    def get_success_rate(self, window: int = 20) -> tuple[int, int, float]:
+        """近 window 次切换的成功率：返回 (成功数, 总数, 成功率)"""
+        history = self.get_switch_history()[:window]
+        total = len(history)
+        if total == 0:
+            return 0, 0, 0.0
+        ok = sum(1 for h in history if h["success"])
+        return ok, total, ok / total
+
+    async def _post_sync_and_verify(
+        self, target: Mode, max_attempts: int = 3, interval: float = 2.0
+    ) -> bool:
+        """后同步 + 验证远端显示器状态，失败时重试"""
+        import asyncio
+
+        for attempt in range(max_attempts):
+            await self._sync_mode_to_remote(target)
+            if await self._verify_remote_state(target):
+                return True
+            if attempt < max_attempts - 1:
+                logger.warning(f"Remote state verification attempt {attempt + 1} failed, retrying...")
+                await asyncio.sleep(interval)
+        self.last_error = f"远端显示器状态验证失败（{target.name}）"
+        return False
+
+    async def _verify_remote_state(self, target: Mode) -> bool:
+        """验证远端 Windows 显示器拓扑是否符合目标模式（端到端）"""
+        import platform
+
+        if platform.system() != "Darwin":
+            # 本机即 Windows：本地管线已做验证
+            return True
+        if target == Mode.MAC:
+            # MAC 模式无法读取显示器电源状态，跳过验证
+            return True
+        try:
+            displays = await self._get_win_client().list_displays()
+        except Exception as e:
+            logger.warning(f"Remote state verification failed: {e}")
+            return False
+        by_id = {d.id: d for d in displays}
+        cfg = self._config.config
+        primary = by_id.get(cfg.display.primary_id)
+        secondary = by_id.get(cfg.display.secondary_id)
+        if target == Mode.WINDOWS:
+            if primary is None or not primary.is_enabled:
+                logger.warning(f"Remote verify: primary DISPLAY{cfg.display.primary_id} not enabled")
+                return False
+            if secondary is not None and not secondary.is_enabled:
+                logger.warning(f"Remote verify: secondary DISPLAY{cfg.display.secondary_id} not enabled")
+                return False
+            return True
+        if target == Mode.SHARE:
+            if primary is None or secondary is None:
+                logger.warning("Remote verify: primary/secondary display missing")
+                return False
+            if primary.is_enabled:
+                logger.warning(f"Remote verify: primary DISPLAY{cfg.display.primary_id} still enabled in SHARE")
+                return False
+            if not secondary.is_enabled:
+                logger.warning(f"Remote verify: secondary DISPLAY{cfg.display.secondary_id} not enabled in SHARE")
+                return False
+            return True
+        return True
 
     async def _sync_mode_to_remote(self, mode: Mode) -> None:
         """同步模式到远端（带重试）"""
@@ -281,6 +458,14 @@ class Controller:
         """检查 Windows Agent 是否在线"""
         try:
             health = await self._get_win_client().health_check()
+            return health is not None
+        except Exception:
+            return False
+
+    async def check_mac_agent(self) -> bool:
+        """检查 Mac Agent 是否在线（Windows 端使用）"""
+        try:
+            health = await self._get_mac_client().health_check()
             return health is not None
         except Exception:
             return False
@@ -329,14 +514,194 @@ class Controller:
             await self._plugins.enable_all()
         self._init_results = init_results
 
-        # 根据平台设置初始模式
+        # 初始模式：优先恢复上次成功切换的模式，否则按平台默认
         import platform
-        if platform.system() == "Windows":
-            self._state.force_set(Mode.WINDOWS)
-        else:
-            self._state.force_set(Mode.MAC)
+        initial_mode: Mode | None = None
+        last_mode = getattr(self._config.config, "last_mode", None)
+        if last_mode in Mode.__members__:
+            initial_mode = Mode[last_mode]
+        if initial_mode is None:
+            initial_mode = Mode.WINDOWS if platform.system() == "Windows" else Mode.MAC
+        self._state.force_set(initial_mode)
+        logger.info(f"Initial mode: {initial_mode.name} (last_mode={last_mode!r})")
+
+        # 启动自检：本地显示器状态与模式是否一致（仅诊断日志）
+        await self._self_check(initial_mode)
+
+        # 自愈（默认关闭）：按上次模式重新应用本地显示器配置
+        if self._config.config.display.auto_repair:
+            logger.info("auto_repair 已开启，正在按上次模式自愈显示器状态…")
+            await self._reconcile_local_displays(initial_mode)
 
         return ok
+
+    async def _self_check(self, mode: Mode) -> None:
+        """启动自检：验证本地显示器状态与当前模式是否一致（仅诊断日志）"""
+        import platform
+
+        is_mac = platform.system() == "Darwin"
+        display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
+        if display is None or not hasattr(display, "list_displays"):
+            return
+        try:
+            displays = await display.list_displays()
+        except Exception as e:
+            logger.warning(f"启动自检：无法枚举显示器: {e}")
+            return
+        by_id = {d.id: d for d in displays}
+        cfg = self._config.config
+        if is_mac:
+            if mode == Mode.SHARE:
+                secondary = by_id.get(cfg.display.secondary_id)
+                if secondary is not None and secondary.is_enabled:
+                    logger.warning(
+                        f"启动自检：Share 模式下 Mac 副屏 (tagID={secondary.id}) 仍处于连接状态"
+                    )
+        else:
+            primary = by_id.get(cfg.display.primary_id)
+            secondary = by_id.get(cfg.display.secondary_id)
+            if mode == Mode.SHARE:
+                if primary is not None and primary.is_enabled:
+                    logger.warning("启动自检：Share 模式下 Windows 主屏仍启用")
+                if secondary is not None and not secondary.is_enabled:
+                    logger.warning("启动自检：Share 模式下 Windows 副屏未启用")
+            elif mode == Mode.WINDOWS:
+                if primary is not None and not primary.is_enabled:
+                    logger.warning("启动自检：Windows 模式下主屏未启用")
+
+    async def _reconcile_local_displays(self, mode: Mode) -> None:
+        """按上次模式自愈本地显示器状态（auto_repair 开启时在启动时调用）"""
+        import asyncio
+        import platform
+
+        is_mac = platform.system() == "Darwin"
+        display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
+        if display is None:
+            logger.warning("自愈跳过：显示器控制插件不可用")
+            return
+        cfg = self._config.config
+        try:
+            if is_mac:
+                if mode == Mode.WINDOWS:
+                    await self._sleep_local_displays()
+                elif mode == Mode.SHARE:
+                    await self._disconnect_secondary(display, cfg.display.secondary_id)
+                    await self._wake_local_displays()
+                else:  # MAC
+                    await self._reconnect_secondary(display, cfg.display.secondary_id)
+                    await self._wake_local_displays()
+            else:
+                if mode == Mode.MAC:
+                    await self._power_off_local_displays()
+                elif mode == Mode.SHARE:
+                    await self._ensure_enabled(display, cfg.display.secondary_id)
+                    await display.set_extend_mode()
+                    await display.disable_display(cfg.display.primary_id)
+                else:  # WINDOWS
+                    await self._enable_all_local_displays(display)
+                    await display.set_extend_mode()
+                    await self._power_on_local_displays()
+        except Exception as e:
+            logger.warning(f"启动自愈失败: {e}")
+
+    # --- 自愈用本地显示器辅助 ---
+
+    @staticmethod
+    async def _wake_local_displays() -> None:
+        import asyncio
+        import platform
+        if platform.system() == "Darwin":
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    "caffeinate -u -t 1",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+            except Exception:
+                pass
+
+    @staticmethod
+    async def _sleep_local_displays() -> None:
+        import asyncio
+        import platform
+        if platform.system() == "Darwin":
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    "pmset displaysleepnow",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await proc.wait()
+            except Exception:
+                pass
+
+    @staticmethod
+    async def _disconnect_secondary(display: Any, fallback_id: int) -> None:
+        from app.scheduler.actions import _resolve_secondary_display_id
+
+        display_id = await _resolve_secondary_display_id(display, fallback_id)
+        try:
+            ok = await display.disable_display(display_id)
+            if not ok:
+                logger.warning(f"自愈：Mac 副屏 (tagID={display_id}) 断开失败")
+        except Exception as e:
+            logger.warning(f"自愈：Mac 副屏断开异常: {e}")
+
+    @staticmethod
+    async def _reconnect_secondary(display: Any, fallback_id: int) -> None:
+        from app.scheduler.actions import _resolve_secondary_display_id
+
+        display_id = await _resolve_secondary_display_id(display, fallback_id)
+        try:
+            await display.enable_display(display_id)
+        except Exception as e:
+            logger.warning(f"自愈：Mac 副屏重连异常: {e}")
+
+    @staticmethod
+    async def _power_off_local_displays() -> None:
+        import ctypes
+        import platform
+        if platform.system() == "Windows":
+            try:
+                ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
+            except Exception:
+                pass
+
+    @staticmethod
+    async def _power_on_local_displays() -> None:
+        import ctypes
+        import platform
+        if platform.system() == "Windows":
+            try:
+                ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, -1)
+            except Exception:
+                pass
+
+    @staticmethod
+    async def _ensure_enabled(display: Any, display_id: int) -> None:
+        try:
+            displays = await display.list_displays()
+            for d in displays:
+                if d.id == display_id:
+                    if d.is_enabled:
+                        return
+                    break
+            await display.enable_display(display_id)
+        except Exception as e:
+            logger.warning(f"自愈：确保显示器 {display_id} 启用失败: {e}")
+
+    @staticmethod
+    async def _enable_all_local_displays(display: Any) -> None:
+        import asyncio
+        try:
+            displays = await display.list_displays()
+            for d in displays:
+                if not d.is_enabled:
+                    await display.enable_display(d.id)
+                    await asyncio.sleep(1.0)
+        except Exception as e:
+            logger.warning(f"自愈：启用全部显示器失败: {e}")
 
     async def shutdown(self) -> None:
         """关闭系统"""

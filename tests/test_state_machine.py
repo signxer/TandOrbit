@@ -34,7 +34,6 @@ class TestStateManager:
         state_manager.force_set(Mode.MAC)
         assert state_manager.can_transition(Mode.WINDOWS)
         assert state_manager.can_transition(Mode.SHARE)
-        assert state_manager.can_transition(Mode.PRESENTATION)
         assert not state_manager.can_transition(Mode.MAC)
 
     def test_set_target(self, state_manager: StateManager) -> None:

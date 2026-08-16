@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any
 
 from loguru import logger
 
@@ -47,6 +46,7 @@ class ActionPipeline:
         self._actions: list[Action] = []
         self._executed: list[Action] = []
         self._event_bus = event_bus
+        self.last_failure: tuple[str, str] | None = None
 
     def add_action(self, action: Action) -> ActionPipeline:
         """添加动作到管道（链式调用）"""
@@ -61,6 +61,7 @@ class ActionPipeline:
         """
         logger.info(f"Pipeline [{self.name}] started with {len(self._actions)} actions")
         start_time = time.monotonic()
+        self.last_failure = None
 
         for action in self._actions:
             action_start = time.monotonic()
@@ -88,6 +89,7 @@ class ActionPipeline:
                 else:
                     action.status = ActionStatus.FAILED
                     logger.error(f"Pipeline [{self.name}] action {action.name} failed")
+                    self.last_failure = (action.name, action.error or "unknown error")
                     self._event_bus.publish(
                         ActionCompletedEvent(
                             action_name=action.name,
@@ -106,6 +108,7 @@ class ActionPipeline:
                 logger.error(
                     f"Pipeline [{self.name}] action {action.name} exception: {e}"
                 )
+                self.last_failure = (action.name, str(e))
                 self._event_bus.publish(
                     ActionCompletedEvent(
                         action_name=action.name,

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, QSize, Qt, Signal
-from PySide6.QtGui import QFont, QIcon, QPixmap
+from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtSvgWidgets import QSvgWidget
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -375,6 +375,11 @@ class MainWindow(QMainWindow):
         btn = self._mode_buttons.get(mode)
         if btn:
             btn.set_loading(loading)
+
+    def set_modes_enabled(self, enabled: bool) -> None:
+        """启用/禁用所有模式切换按钮（切换过程中防止重复点击）"""
+        for btn in self._mode_buttons.values():
+            btn.setEnabled(enabled)
 
     def update_hotkeys(self, hotkeys: dict[str, str]) -> None:
         """更新快捷键提示"""

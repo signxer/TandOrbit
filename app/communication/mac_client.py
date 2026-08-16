@@ -20,6 +20,8 @@ class MacClient:
     """
 
     def __init__(self, host: str = "192.168.1.100", port: int = 5000, timeout: float = 10.0) -> None:
+        self.host = host
+        self.port = port
         self._base_url = f"http://{host}:{port}"
         self._timeout = timeout
         self._client: httpx.AsyncClient | None = None

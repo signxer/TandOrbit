@@ -79,31 +79,87 @@ class BetterDisplayPlugin(Plugin):
     # --- 显示器控制接口 ---
 
     async def list_displays(self) -> list[DisplayInfo]:
-        """列出所有显示器"""
-        import json
+        """列出所有显示器（tagID 为 BetterDisplay 安装专属 ID，不是 Windows DISPLAY 编号）"""
         output = await self._run_cli("get --identifiers")
         if output is None:
             return []
-        displays = []
-        try:
-            # 输出是多个 JSON 对象，用逗号分隔
-            # 需要包装成数组
-            json_str = f"[{output}]"
-            items = json.loads(json_str)
-            for item in items:
-                if item.get("deviceType") != "Display":
-                    continue
-                tag_id = item.get("tagID", 0)
-                name = item.get("name", item.get("originalName", "Unknown"))
-                displays.append(
-                    DisplayInfo(
-                        id=int(tag_id),
-                        name=name,
-                        is_primary=(len(displays) == 0),
-                    )
+        return self._parse_identifiers(output)
+
+    @staticmethod
+    def _parse_identifiers(output: str) -> list[DisplayInfo]:
+        """解析 betterdisplaycli get --identifiers 输出（纯函数，便于测试）
+
+        输出可能是 JSON 数组，也可能是多行/逗号分隔的独立 JSON 对象，
+        这里做防御性解析。
+        """
+        import json
+
+        text = (output or "").strip()
+        if not text:
+            return []
+        items: list[dict[str, Any]] = []
+        if text.startswith("["):
+            try:
+                items = json.loads(text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse display list JSON: {e}")
+                return []
+        else:
+            decoder = json.JSONDecoder()
+            idx = 0
+            while idx < len(text):
+                while idx < len(text) and text[idx] in " \t\r\n,":
+                    idx += 1
+                if idx >= len(text):
+                    break
+                try:
+                    obj, end = decoder.raw_decode(text, idx)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse display list JSON: {e}")
+                    break
+                items.append(obj)
+                idx = end
+
+        displays: list[DisplayInfo] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("deviceType") not in (None, "Display"):
+                continue
+            try:
+                tag_id = int(item.get("tagID", 0))
+            except (TypeError, ValueError):
+                continue
+            if tag_id == 0:
+                continue
+            name = str(item.get("name") or item.get("originalName") or f"Display {tag_id}")
+            # BetterDisplay identifiers 中主显示器通过 "main" 标记（值可能为 on/off/1/0/true/false）
+            main_flag = item.get("main", 0)
+            is_primary = False
+            if main_flag is not None:
+                if isinstance(main_flag, str):
+                    is_primary = main_flag.strip().lower() not in ("off", "0", "false")
+                else:
+                    is_primary = bool(main_flag)
+            # "connected" 标记显示器是否连接（值可能为 on/off/1/0/true/false）
+            conn = item.get("connected")
+            is_enabled = True
+            if conn is not None:
+                if isinstance(conn, str):
+                    is_enabled = conn.strip().lower() not in ("off", "0", "false")
+                else:
+                    is_enabled = bool(conn)
+            displays.append(
+                DisplayInfo(
+                    id=tag_id,
+                    name=name,
+                    is_primary=is_primary,
+                    is_enabled=is_enabled,
                 )
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.error(f"Failed to parse display list: {e}")
+            )
+        # 没有任何显示器标记为主屏时，回退：第一个显示器视为主屏
+        if displays and not any(d.is_primary for d in displays):
+            displays[0].is_primary = True
         return displays
 
     async def enable_display(self, display_id: int) -> bool:

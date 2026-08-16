@@ -16,6 +16,29 @@ from loguru import logger
 from app.scheduler.action_pipeline import Action
 
 
+async def _resolve_secondary_display_id(plugin: Any, fallback: int) -> int:
+    """优先从插件枚举结果解析副显示器 ID，失败时回退到配置值。
+
+    Windows 端（MultiMonitorTool）：DISPLAY 编号；Mac 端（BetterDisplay）：
+    tagID 是安装专属编号，配置里的 secondary_id 通常是 Windows 的 DISPLAY 编号，
+    必须用真实枚举结果解析。
+    """
+    if plugin is None:
+        return fallback
+    try:
+        if not hasattr(plugin, "list_displays"):
+            return fallback
+        displays = await plugin.list_displays()
+        if len(displays) >= 2:
+            non_primary = [d for d in displays if not d.is_primary]
+            if non_primary:
+                return non_primary[0].id
+            return displays[-1].id
+    except Exception:
+        pass
+    return fallback
+
+
 class DelayAction(Action):
     """延迟执行（等待显示器切换信号源等）"""
 
@@ -216,27 +239,23 @@ class ConfigureDisplaysForMac(Action):
 
 
 class ConfigureDisplaysForWindows(Action):
-    """配置显示器：双屏给 Windows"""
+    """配置显示器：Mac 端休眠显示器，让显示器自动切换到 Windows 输入源
 
-    def __init__(self, mac_display_plugin: Any = None, win_client: Any = None) -> None:
+    Windows 端的拓扑（启用全部显示器 + 扩展模式）由模式同步
+    （Controller 预同步/后同步）负责，这里只处理 Mac 侧信号。
+    """
+
+    def __init__(self, mac_display_plugin: Any = None) -> None:
         super().__init__("Configure displays for Windows mode")
         self._mac_display = mac_display_plugin
-        self._win_client = win_client
 
     async def execute(self) -> bool:
         logger.info("Configuring displays for Windows mode")
 
-        # Windows 端：启用所有显示器（先让 Windows 准备好）
-        if self._win_client:
-            try:
-                await self._win_client.set_extend()
-            except Exception as e:
-                logger.warning(f"Windows display config error: {e}")
+        # 等待 Windows 端完成拓扑配置（预同步已先执行）
+        await asyncio.sleep(2.0)
 
-        # 等待 Windows 准备好
-        await asyncio.sleep(3.0)
-
-        # Mac 端：休眠所有显示器，显示器自动切换到 Windows 输入源
+        # Mac 端：休眠显示器 → 显示器检测到 Mac 信号消失后切换到 Windows 输入源
         if platform.system() == "Darwin":
             try:
                 proc = await asyncio.create_subprocess_shell(
@@ -246,6 +265,7 @@ class ConfigureDisplaysForWindows(Action):
                 )
                 await proc.wait()
                 logger.info("Mac displays put to sleep")
+                await asyncio.sleep(1.0)  # 给显示器留出切换时间
             except Exception as e:
                 logger.warning(f"Mac display sleep error: {e}")
 
@@ -256,7 +276,7 @@ class ConfigureDisplaysForWindows(Action):
 
 
 class ConfigureDisplaysForShare(Action):
-    """配置显示器：Mac 保留主屏，断开副屏连接（让 Windows 接管）"""
+    """配置显示器：Mac 保留主屏，断开副屏连接（让 Windows 接管副屏）"""
 
     def __init__(self, mac_display_plugin: Any = None, secondary_display_id: int = 2) -> None:
         super().__init__("Configure displays for Share mode")
@@ -278,14 +298,17 @@ class ConfigureDisplaysForShare(Action):
             except Exception as e:
                 logger.warning(f"Mac display wake error: {e}")
 
-        # 断开 Mac 副屏连接（让 Windows 独占）
+        # 断开 Mac 副屏连接（让 Windows 独占），优先使用真实枚举解析的 tagID
         if self._mac_display:
+            secondary_id = await _resolve_secondary_display_id(
+                self._mac_display, self._secondary_id
+            )
             try:
-                ok = await self._mac_display.disable_display(self._secondary_id)
+                ok = await self._mac_display.disable_display(secondary_id)
                 if ok:
-                    logger.info(f"Mac secondary display (tagID={self._secondary_id}) disconnected")
+                    logger.info(f"Mac secondary display (tagID={secondary_id}) disconnected")
                 else:
-                    logger.warning(f"Mac secondary display (tagID={self._secondary_id}) disconnect failed")
+                    logger.warning(f"Mac secondary display (tagID={secondary_id}) disconnect failed")
             except Exception as e:
                 logger.warning(f"Mac secondary display disconnect error: {e}")
 
@@ -306,13 +329,16 @@ class ReconnectSecondaryDisplay(Action):
     async def execute(self) -> bool:
         if not self._mac_display:
             return True
-        logger.info(f"Reconnecting Mac secondary display (tagID={self._secondary_id})")
+        secondary_id = await _resolve_secondary_display_id(
+            self._mac_display, self._secondary_id
+        )
+        logger.info(f"Reconnecting Mac secondary display (tagID={secondary_id})")
         try:
-            ok = await self._mac_display.enable_display(self._secondary_id)
+            ok = await self._mac_display.enable_display(secondary_id)
             if ok:
-                logger.info(f"Mac secondary display (tagID={self._secondary_id}) reconnected")
+                logger.info(f"Mac secondary display (tagID={secondary_id}) reconnected")
             else:
-                logger.warning(f"Mac secondary display (tagID={self._secondary_id}) reconnect failed")
+                logger.warning(f"Mac secondary display (tagID={secondary_id}) reconnect failed")
             return ok
         except Exception as e:
             logger.warning(f"Mac secondary display reconnect error: {e}")
@@ -333,8 +359,17 @@ class RestartDeskflowAction(Action):
         if not self._deskflow:
             logger.warning("Deskflow plugin not available")
             return True
+        # 插件初始化失败（未安装）时不应拖垮整个模式切换
+        status = getattr(self._deskflow, "status", None)
+        if status is not None and getattr(status, "name", "") == "ERROR":
+            logger.warning("Deskflow 插件初始化失败，跳过重启")
+            return True
         logger.info("Restarting Deskflow")
-        return await self._deskflow.restart()
+        ok = await self._deskflow.restart()
+        if not ok:
+            # Deskflow 重启失败不影响显示切换结果，仅告警
+            logger.warning("Deskflow 重启失败（显示切换已完成）")
+        return True
 
     async def rollback(self) -> bool:
         return True
@@ -525,13 +560,16 @@ class LocalDisplaySleepPrimaryAction(Action):
 
 
 class VerifyDisplayModeAction(Action):
-    """验证显示器拓扑模式是否生效，失败则重试切换"""
+    """验证显示器拓扑是否生效，失败则重新应用并重试"""
 
     def __init__(self, mode: str, display_plugin: Any = None,
+                 primary_id: int = 1, secondary_id: int = 2,
                  max_attempts: int = 3, interval: float = 3.0) -> None:
         super().__init__(f"Verify display mode: {mode}")
         self._mode = mode
         self._display = display_plugin
+        self._primary_id = primary_id
+        self._secondary_id = secondary_id
         self._max_attempts = max_attempts
         self._interval = interval
 
@@ -539,17 +577,21 @@ class VerifyDisplayModeAction(Action):
         if not self._display:
             return True
         for attempt in range(self._max_attempts):
-            ok = await self._display.verify_display_mode(self._mode)
+            ok = await self._display.verify_display_mode(
+                self._mode,
+                primary_id=self._primary_id,
+                secondary_id=self._secondary_id,
+            )
             if ok:
                 logger.info(f"Display mode '{self._mode}' verified")
                 return True
             if attempt < self._max_attempts - 1:
-                logger.warning(f"Display mode '{self._mode}' not verified, retrying switch...")
-                # 重新切换
+                logger.warning(f"Display mode '{self._mode}' not verified, reapplying...")
+                # 重新应用拓扑
                 if self._mode == "extend":
                     await self._display.set_extend_mode()
-                elif self._mode == "clone":
-                    await self._display.set_clone_mode()
+                elif self._mode == "share":
+                    await self._display.disable_display(self._primary_id)
                 await asyncio.sleep(self._interval)
         logger.error(f"Display mode '{self._mode}' verification failed after {self._max_attempts} attempts")
         return False
@@ -585,6 +627,57 @@ class LocalDisplayOnAction(Action):
         except Exception as e:
             logger.warning(f"Local display on error: {e}")
             return False
+
+    async def rollback(self) -> bool:
+        return True
+
+
+class SwitchDisplayInputsAction(Action):
+    """通过 DDC/CI 主动切换显示器输入源（配置驱动，默认关闭）
+
+    配置 display.input_map: {"显示器DDC编号": {"mac": "hdmi1", "windows": "dp1"}}
+    尽力而为：DDC 失败不影响整次切换结果。
+    """
+
+    def __init__(
+        self,
+        ddc_plugin: Any = None,
+        input_map: dict[str, dict[str, str]] | None = None,
+        target_mode: str = "",
+    ) -> None:
+        super().__init__(f"Switch display inputs ({target_mode or '?'})")
+        self._ddc = ddc_plugin
+        self._input_map = input_map or {}
+        self._target_mode = target_mode
+
+    async def execute(self) -> bool:
+        if not self._ddc or not self._input_map or not self._target_mode:
+            return True
+        status = getattr(self._ddc, "status", None)
+        if status is not None and getattr(status, "name", "") == "ERROR":
+            logger.warning("DDC 插件不可用，跳过输入源切换")
+            return True
+
+        from app.enums import InputSource
+
+        for display_id, mapping in self._input_map.items():
+            source_name = (mapping.get(self._target_mode) or "").strip()
+            if not source_name:
+                continue
+            try:
+                source = InputSource(source_name)
+            except ValueError:
+                logger.warning(f"未知输入源: {source_name!r}（显示器 {display_id}）")
+                continue
+            try:
+                ok = await self._ddc.set_input_source(int(display_id), source)
+                if ok:
+                    logger.info(f"DDC: 显示器 {display_id} 输入源 -> {source_name}")
+                else:
+                    logger.warning(f"DDC: 显示器 {display_id} 输入源切换失败")
+            except Exception as e:
+                logger.warning(f"DDC: 显示器 {display_id} 输入源切换异常: {e}")
+        return True
 
     async def rollback(self) -> bool:
         return True

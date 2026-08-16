@@ -6,7 +6,7 @@ YAML 配置加载与热更新。
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 from loguru import logger
@@ -19,8 +19,11 @@ class DisplayConfig(BaseModel):
     primary_id: int = 1
     secondary_id: int = 2
     share_display_id: int = 2  # 共享模式下留给 Windows 的显示器 ID
-    ddc_primary_monitor: str = r"\\.\DISPLAY2\Monitor0"  # DDC/CI 主屏标识
-    ddc_secondary_monitor: str = r"\\.\DISPLAY2\Monitor1"  # DDC/CI 副屏标识
+    ddc_primary_monitor: str = r"\\.\DISPLAY1\Monitor0"  # DDC/CI 主屏标识（ControlMyMonitor 用）
+    ddc_secondary_monitor: str = r"\\.\DISPLAY2\Monitor0"  # DDC/CI 副屏标识（ControlMyMonitor 用）
+    auto_repair: bool = False  # 启动时按上次模式自愈显示器状态（默认关闭，避免意外改动）
+    ddc_switch_enabled: bool = False  # DDC/CI 主动切换显示器输入源（默认关闭）
+    input_map: dict[str, dict[str, str]] = {}  # 显示器 DDC 编号 → {mac: 输入源, windows: 输入源}
 
 
 class WindowsConfig(BaseModel):
@@ -47,6 +50,7 @@ class DeskflowConfig(BaseModel):
     server_host: str = "192.168.1.100"
     server_port: int = 24800
     client_name: str = "mac"
+    is_server: Optional[bool] = None  # None = 按平台自动判断（Windows 为服务端，Mac 为客户端）
 
 
 class BetterDisplayConfig(BaseModel):
@@ -99,6 +103,7 @@ class AppConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
     wol_nic: str = ""  # 本机 WoL 网卡名，如 en0 / Ethernet
+    last_mode: Optional[str] = None  # 上次成功切换的模式（启动恢复用）
     log_level: str = "INFO"
     log_dir: str = "logs"
     log_retention_days: int = 30
@@ -141,10 +146,16 @@ class ConfigManager:
         return self._config
 
     def save(self) -> None:
-        """保存配置到文件"""
+        """保存配置到文件（原子写入：先写临时文件再替换，避免崩溃损坏配置）"""
+        import os
+        import tempfile
+
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".tandorbit_config_", suffix=".tmp", dir=str(self._path.parent)
+        )
         try:
-            with open(self._path, "w", encoding="utf-8") as f:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 yaml.dump(
                     self._config.model_dump(),
                     f,
@@ -152,9 +163,14 @@ class ConfigManager:
                     allow_unicode=True,
                     sort_keys=False,
                 )
+            os.replace(tmp_path, str(self._path))
             logger.info(f"Config saved to {self._path}")
-        except Exception as e:
-            logger.error(f"Failed to save config: {e}")
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def update(self, updates: dict[str, Any]) -> None:
         """更新配置（部分更新）"""
@@ -162,6 +178,34 @@ class ConfigManager:
         self._deep_merge(current, updates)
         self._config = AppConfig(**current)
         self.save()
+
+    def export_to(self, path: Path | str) -> bool:
+        """导出当前配置到指定路径"""
+        import shutil
+
+        try:
+            if not self._path.exists():
+                self.save()
+            shutil.copy2(self._path, str(path))
+            logger.info(f"Config exported to {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to export config: {e}")
+            return False
+
+    def import_from(self, path: Path | str) -> bool:
+        """从指定路径导入配置并重载"""
+        import shutil
+
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(path), str(self._path))
+            self.load()
+            logger.info(f"Config imported from {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to import config: {e}")
+            return False
 
     def _deep_merge(self, base: dict[str, Any], override: dict[str, Any]) -> None:
         """深度合并字典"""

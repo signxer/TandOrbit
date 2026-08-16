@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from app.enums import Mode
-from app.models import AgentHealthStatus, AgentResponse, DisplayInfo
+from app.models import AgentHealthStatus, AgentResponse
 
 
 class AgentServer:
@@ -92,30 +92,20 @@ class AgentServer:
     # --- API Handlers ---
 
     async def _health_check(self, request: Request) -> JSONResponse:
-        """健康检查"""
-        displays = []
-        if self._display_plugin:
-            try:
-                display_list = await self._display_plugin.list_displays()
-                displays = [d.model_dump(mode="json") for d in display_list]
-            except Exception:
-                pass
-
+        """健康检查（轻量实现：不枚举显示器，避免频繁触发 PowerShell 子进程）"""
         deskflow_running = False
-        deskflow_connected = False
         if self._deskflow_plugin:
             try:
                 deskflow_running = await self._deskflow_plugin.health_check()
-                deskflow_connected = await self._deskflow_plugin.check_connection()
             except Exception:
                 pass
 
         status = AgentHealthStatus(
             status="ok",
             uptime_seconds=time.monotonic() - self._start_time,
-            displays=[DisplayInfo(**d) for d in displays] if displays else [],
+            displays=[],
             deskflow_running=deskflow_running,
-            deskflow_connected=deskflow_connected,
+            deskflow_connected=deskflow_running,
         )
         return JSONResponse(status.model_dump(mode="json"))
 
@@ -350,7 +340,13 @@ class AgentServer:
             )
 
     async def _set_mode(self, request: Request) -> JSONResponse:
-        """接收远端模式变更通知（Mac 端收到后会同步到 Windows）"""
+        """接收远端模式变更通知，并执行本机对应的显示器配置
+
+        语义（对称化，修复"切换成功率不高"）：
+        - WINDOWS 模式：启用全部显示器 + 扩展拓扑 + 上电
+        - SHARE 模式：保留副屏（禁用主屏），扩展拓扑
+        - MAC 模式：关闭本机显示器（让显示器切到对端输入源）
+        """
         import platform
         try:
             body = await request.json()
@@ -361,25 +357,22 @@ class AgentServer:
                     status_code=400,
                 )
             mode = Mode[mode_name]
-            # 检查是否已经是目标模式（避免重复操作）
             from_mode = None
             if hasattr(self, "_state_manager") and self._state_manager:
-                if self._state_manager.current_mode == mode:
-                    logger.info(f"Already in {mode_name} mode, skipping")
-                    return JSONResponse(
-                        AgentResponse(success=True, message=f"Already in {mode_name}").model_dump(mode="json")
-                    )
-                from_mode = self._state_manager.current_mode
-                self._state_manager.force_set(mode)
-                logger.info(f"Mode synced from remote: {mode_name}")
-            # Windows 端：执行显示器切换
+                if self._state_manager.is_transitioning:
+                    # 本机正在切换中，只应用显示器配置，不覆盖状态
+                    logger.warning("Local transition in progress; applying display mode without state change")
+                else:
+                    from_mode = self._state_manager.current_mode
+                    if from_mode != mode:
+                        self._state_manager.force_set(mode)
+                        logger.info(f"Mode synced from remote: {mode_name}")
+                    # 即使已经是目标模式也重新应用显示器配置（幂等），
+                    # 修复从 Share 切出时远端显示器被关闭后无人重新启用的问题
             if platform.system() == "Windows":
                 await self._apply_display_mode(mode, from_mode)
-            # Mac 端：唤醒显示器
-            elif platform.system() == "Darwin" and mode != Mode.WINDOWS:
-                await self._wake_mac_displays()
-            # 如果是 Mac 端收到，转发到 Windows Agent
-            await self._forward_mode_to_windows(mode_name)
+            elif platform.system() == "Darwin":
+                await self._apply_mac_display_mode(mode)
             return JSONResponse(
                 AgentResponse(success=True, message=f"Mode set to {mode_name}").model_dump(mode="json")
             )
@@ -390,37 +383,124 @@ class AgentServer:
             )
 
     async def _apply_display_mode(self, mode: Mode, from_mode: Mode | None = None) -> None:
-        """根据模式切换显示器拓扑"""
-        # 从 Share 模式切出时：先关屏释放副屏给 Mac
-        if from_mode == Mode.SHARE and mode in (Mode.MAC, Mode.WINDOWS):
-            await self._turn_off_displays()
-            return
+        """Windows 端：根据模式切换显示器拓扑与电源
 
+        - WINDOWS：启用所有显示器 + 扩展拓扑 + 上电（显示器切回 Windows）
+        - SHARE：确保副屏启用 + 扩展拓扑 + 禁用主屏（主屏留给 Mac）
+        - MAC：关闭本机显示器（信号消失后显示器自动切到 Mac 输入）
+        """
+        logger.debug(f"Applying display mode {mode.name} (from {from_mode.name if from_mode else 'unknown'})")
         if not self._display_plugin:
-            await self._wake_displays()
+            if mode == Mode.MAC:
+                await self._turn_off_displays()
+            else:
+                await self._wake_displays()
             return
 
         try:
             if mode == Mode.WINDOWS:
+                await self._enable_all_displays()
                 await self._display_plugin.set_extend_mode()
-                logger.info("Display mode set to extend")
+                await self._power_on_displays()
             elif mode == Mode.SHARE:
-                await self._display_plugin.set_clone_mode()
-                logger.info("Display mode set to clone")
-            else:
-                await self._wake_displays()
+                await self._ensure_display_enabled(self._secondary_display_id())
+                await self._display_plugin.set_extend_mode()
+                await self._disable_display(self._primary_display_id())
+            else:  # MAC
+                await self._turn_off_displays()
         except Exception as e:
-            logger.warning(f"Failed to set display mode: {e}")
-            await self._wake_displays()
+            logger.warning(f"Failed to apply display mode {mode.name}: {e}")
+
+    async def _apply_mac_display_mode(self, mode: Mode) -> None:
+        """Mac 端：收到远端模式变更后执行完整重配置（与本地管线语义一致）
+
+        - WINDOWS：休眠 Mac 显示器（显示器切到 Windows 输入源）
+        - SHARE：保留主屏，断开副屏（Windows 独占副屏）
+        - MAC：唤醒显示器并确保副屏已连接
+        """
+        try:
+            if mode == Mode.WINDOWS:
+                await self._sleep_mac_displays()
+            elif mode == Mode.SHARE:
+                await self._disconnect_mac_secondary()
+                await self._wake_mac_displays()
+            else:  # MAC
+                await self._reconnect_mac_secondary()
+                await self._wake_mac_displays()
+        except Exception as e:
+            logger.warning(f"Mac display reconfig failed: {e}")
+
+    # --- Windows 显示器拓扑/电源辅助 ---
+
+    def _primary_display_id(self) -> int:
+        """主显示器 DISPLAY 编号（来自配置，默认 1）"""
+        try:
+            from app.config import ConfigManager
+            return int(ConfigManager().load().display.primary_id)
+        except Exception:
+            return 1
+
+    def _secondary_display_id(self) -> int:
+        """副显示器 DISPLAY 编号（来自配置，默认 2）"""
+        try:
+            from app.config import ConfigManager
+            return int(ConfigManager().load().display.secondary_id)
+        except Exception:
+            return 2
+
+    async def _enable_all_displays(self) -> None:
+        """启用所有被禁用的显示器"""
+        if not self._display_plugin:
+            return
+        try:
+            displays = await self._display_plugin.list_displays()
+            for d in displays:
+                if not d.is_enabled:
+                    logger.info(f"Enabling display {d.id}: {d.name}")
+                    await self._display_plugin.enable_display(d.id)
+                    await asyncio.sleep(1.0)
+        except Exception as e:
+            logger.warning(f"Enable all displays error: {e}")
+
+    async def _ensure_display_enabled(self, display_id: int) -> None:
+        """确保指定显示器已启用"""
+        if not self._display_plugin:
+            return
+        try:
+            displays = await self._display_plugin.list_displays()
+            for d in displays:
+                if d.id == display_id:
+                    if d.is_enabled:
+                        return
+                    break
+            logger.info(f"Enabling display {display_id}")
+            await self._display_plugin.enable_display(display_id)
+            await asyncio.sleep(1.0)
+        except Exception as e:
+            logger.warning(f"Ensure display enabled error: {e}")
+
+    async def _disable_display(self, display_id: int) -> None:
+        """禁用指定显示器"""
+        if not self._display_plugin:
+            return
+        try:
+            logger.info(f"Disabling display {display_id} (releasing for Mac)")
+            await self._display_plugin.disable_display(display_id)
+        except Exception as e:
+            logger.warning(f"Disable display error: {e}")
 
     async def _turn_off_displays(self) -> None:
-        """关闭 Windows 显示器（SC_MONITORPOWER）"""
+        """关闭 Windows 显示器（SC_MONITORPOWER，仅断电不断开）"""
         import ctypes
         try:
             ctypes.windll.user32.SendMessageW(0xFFFF, 0x0112, 0xF170, 2)
             logger.info("Windows displays turned off (releasing for Mac)")
         except Exception as e:
             logger.warning(f"Windows display off error: {e}")
+
+    async def _power_on_displays(self) -> None:
+        """唤醒 Windows 显示器"""
+        await self._wake_displays()
 
     async def _wake_displays(self) -> None:
         """唤醒 Windows 显示器"""
@@ -432,9 +512,67 @@ class AgentServer:
         except Exception as e:
             logger.warning(f"Wake displays failed: {e}")
 
+    # --- Mac 显示器辅助 ---
+
+    async def _resolve_mac_secondary_id(self) -> int | None:
+        """从 BetterDisplay 枚举结果解析副显示器 tagID"""
+        plugin = self._display_plugin
+        if plugin is None:
+            return None
+        try:
+            displays = await plugin.list_displays()
+            if len(displays) >= 2:
+                non_primary = [d for d in displays if not d.is_primary]
+                if non_primary:
+                    return non_primary[0].id
+                return displays[-1].id
+        except Exception:
+            pass
+        return None
+
+    async def _disconnect_mac_secondary(self) -> None:
+        """断开 Mac 副屏（Share 模式）"""
+        plugin = self._display_plugin
+        if plugin is None:
+            return
+        display_id = await self._resolve_mac_secondary_id()
+        if display_id is None:
+            logger.warning("Cannot resolve Mac secondary display, skipping disconnect")
+            return
+        try:
+            ok = await plugin.disable_display(display_id)
+            if ok:
+                logger.info(f"Mac secondary display (tagID={display_id}) disconnected")
+            else:
+                logger.warning(f"Mac secondary display (tagID={display_id}) disconnect failed")
+        except Exception as e:
+            logger.warning(f"Mac secondary display disconnect error: {e}")
+
+    async def _reconnect_mac_secondary(self) -> None:
+        """重新连接 Mac 副屏（离开 Share 模式）"""
+        plugin = self._display_plugin
+        if plugin is None:
+            return
+        display_id = await self._resolve_mac_secondary_id()
+        if display_id is None:
+            # 枚举中只有主屏时无法解析副屏 tagID，尝试用配置值（用户可能已配置真实 tagID）
+            try:
+                from app.config import ConfigManager
+                display_id = int(ConfigManager().load().display.secondary_id)
+            except Exception:
+                logger.warning("Cannot resolve Mac secondary display, skipping reconnect")
+                return
+        try:
+            ok = await plugin.enable_display(display_id)
+            if ok:
+                logger.info(f"Mac secondary display (tagID={display_id}) reconnected")
+            else:
+                logger.warning(f"Mac secondary display (tagID={display_id}) reconnect failed")
+        except Exception as e:
+            logger.warning(f"Mac secondary display reconnect error: {e}")
+
     async def _wake_mac_displays(self) -> None:
         """唤醒 Mac 显示器"""
-        import asyncio
         try:
             proc = await asyncio.create_subprocess_shell(
                 "caffeinate -u -t 1",
@@ -446,19 +584,15 @@ class AgentServer:
         except Exception as e:
             logger.warning(f"Wake Mac displays failed: {e}")
 
-    async def _forward_mode_to_windows(self, mode_name: str) -> None:
-        """Mac 端收到模式变更后转发到 Windows Agent"""
-        import platform
-        if platform.system() != "Darwin":
-            return
+    async def _sleep_mac_displays(self) -> None:
+        """休眠 Mac 显示器（让显示器切到 Windows 输入源）"""
         try:
-            import httpx
-            from app.config import ConfigManager
-            cfg = ConfigManager().load()
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(
-                    f"http://{cfg.windows.host}:{cfg.windows.port}/api/mode/set",
-                    json={"mode": mode_name},
-                )
+            proc = await asyncio.create_subprocess_shell(
+                "pmset displaysleepnow",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.wait()
+            logger.info("Mac displays put to sleep")
         except Exception as e:
-            logger.warning(f"Forward mode to Windows failed: {e}")
+            logger.warning(f"Sleep Mac displays failed: {e}")

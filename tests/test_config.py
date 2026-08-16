@@ -39,3 +39,38 @@ class TestConfigManager:
             mgr.load()
             assert mgr.get("windows.port") == 5000
             assert mgr.get("nonexistent.key", "default") == "default"
+
+
+class TestV2ConfigFields:
+    """v2.0 新增配置字段"""
+
+    def test_new_display_fields_defaults(self) -> None:
+        config = AppConfig()
+        assert config.display.auto_repair is False
+        assert config.display.ddc_switch_enabled is False
+        assert config.display.input_map == {}
+        assert config.display.ddc_primary_monitor.startswith(r"\\.\DISPLAY1")
+
+    def test_last_mode_default_none(self) -> None:
+        config = AppConfig()
+        assert config.last_mode is None
+
+    def test_export_import_roundtrip(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            src = Path(tmpdir) / "src.yaml"
+            dst = Path(tmpdir) / "dst.yaml"
+            mgr = ConfigManager(src)
+            mgr.load()
+            mgr.update({"windows": {"port": 8080}, "last_mode": "SHARE"})
+
+            assert mgr.export_to(dst)
+            assert dst.exists()
+
+            mgr2 = ConfigManager(Path(tmpdir) / "other.yaml")
+            mgr2.load()
+            assert mgr2.import_from(dst)
+            assert mgr2.config.windows.port == 8080
+            assert mgr2.config.last_mode == "SHARE"

@@ -26,7 +26,10 @@ class DeskflowPlugin(Plugin):
 
     def __init__(self, event_bus: EventBus, config: dict[str, Any] | None = None) -> None:
         super().__init__("deskflow", event_bus, config)
-        self._is_server = self.config.get("is_server", False)
+        # is_server 未配置时按平台推断：Windows 为服务端，Mac 为客户端
+        self._is_server = self.config.get("is_server")
+        if self._is_server is None:
+            self._is_server = platform.system() == "Windows"
         self._server_host = self.config.get("server_host", "192.168.1.100")
         self._server_port = self.config.get("server_port", 24800)
         self._auto_restart = self.config.get("auto_restart", True)

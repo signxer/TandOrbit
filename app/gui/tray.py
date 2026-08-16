@@ -19,6 +19,8 @@ class TrayIcon(QSystemTrayIcon):
     show_window_requested = Signal()
     settings_requested = Signal()
     check_update_requested = Signal()
+    view_log_requested = Signal()
+    switch_history_requested = Signal()
     quit_requested = Signal()
 
     def __init__(self, icon: QIcon | None = None, parent: QWidget | None = None) -> None:
@@ -51,19 +53,33 @@ class TrayIcon(QSystemTrayIcon):
         menu.addSeparator()
 
         # 模式切换
+        self._mode_actions: dict[Mode, QAction] = {}
         mac_action = QAction("Mac 模式", menu)
         mac_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.MAC))
         menu.addAction(mac_action)
+        self._mode_actions[Mode.MAC] = mac_action
 
         win_action = QAction("Windows 模式", menu)
         win_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.WINDOWS))
         menu.addAction(win_action)
+        self._mode_actions[Mode.WINDOWS] = win_action
 
         share_action = QAction("共享模式", menu)
         share_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.SHARE))
         menu.addAction(share_action)
+        self._mode_actions[Mode.SHARE] = share_action
 
         menu.addSeparator()
+
+        # 查看日志
+        view_log_action = QAction("查看日志", menu)
+        view_log_action.triggered.connect(self.view_log_requested.emit)
+        menu.addAction(view_log_action)
+
+        # 切换记录
+        history_action = QAction("切换记录…", menu)
+        history_action.triggered.connect(self.switch_history_requested.emit)
+        menu.addAction(history_action)
 
         # 检查更新
         update_action = QAction("检查更新...", menu)
@@ -80,14 +96,15 @@ class TrayIcon(QSystemTrayIcon):
         self.setContextMenu(menu)
 
     def update_mode(self, mode: Mode) -> None:
-        """更新托盘图标提示"""
+        """更新托盘图标提示，并禁用当前模式的菜单项（避免重复切换）"""
         self._current_mode = mode
         mode_names = {
             Mode.MAC: "Mac 模式",
             Mode.WINDOWS: "Windows 模式",
             Mode.SHARE: "共享模式",
-            Mode.PRESENTATION: "演示模式",
             Mode.UNKNOWN: "未知",
         }
         name = mode_names.get(mode, "未知")
         self.setToolTip(f"TandOrbit - {name}")
+        for m, action in getattr(self, "_mode_actions", {}).items():
+            action.setEnabled(m != mode)

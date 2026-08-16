@@ -9,7 +9,6 @@ class Mode(Enum):
     MAC = auto()
     WINDOWS = auto()
     SHARE = auto()
-    PRESENTATION = auto()
     UNKNOWN = auto()
 
 

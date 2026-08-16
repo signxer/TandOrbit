@@ -60,6 +60,32 @@ class TestActionPipeline:
         assert not a3.executed  # a2 失败后 a3 不应执行
         assert a1.rolled_back  # a1 应该被回滚
         assert not a2.rolled_back  # a2 本身不需要回滚
+        assert pipeline.last_failure == ("action2", "unknown error")
+
+    @pytest.mark.asyncio
+    async def test_exception_records_last_failure(self) -> None:
+        bus = EventBus()
+        pipeline = ActionPipeline("test", bus)
+
+        class ExceptionAction(Action):
+            async def execute(self) -> bool:
+                raise RuntimeError("boom")
+
+            async def rollback(self) -> bool:
+                return True
+
+        pipeline.add_action(ExceptionAction("action2"))
+        result = await pipeline.execute()
+        assert result is False
+        assert pipeline.last_failure == ("action2", "boom")
+
+    @pytest.mark.asyncio
+    async def test_last_failure_cleared_on_success(self) -> None:
+        bus = EventBus()
+        pipeline = ActionPipeline("test", bus)
+        pipeline.add_action(MockAction("action1"))
+        await pipeline.execute()
+        assert pipeline.last_failure is None
 
     @pytest.mark.asyncio
     async def test_exception_triggers_rollback(self) -> None:
