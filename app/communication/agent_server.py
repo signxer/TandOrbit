@@ -12,12 +12,32 @@ from typing import Any
 
 from loguru import logger
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from app.enums import Mode
 from app.models import AgentHealthStatus, AgentResponse
+
+
+class _AuthMiddleware(BaseHTTPMiddleware):
+    """Agent 访问令牌鉴权（/api/health 放行，供在线探测；其余端点需 Bearer token）"""
+
+    def __init__(self, app: Any, token: str) -> None:
+        super().__init__(app)
+        self._token = token
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        if not self._token or request.url.path == "/api/health":
+            return await call_next(request)
+        auth = request.headers.get("authorization", "")
+        if auth == f"Bearer {self._token}":
+            return await call_next(request)
+        return JSONResponse(
+            {"success": False, "error": "Unauthorized"}, status_code=401
+        )
 
 
 class AgentServer:
@@ -34,6 +54,12 @@ class AgentServer:
         self._display_plugin: Any = None
         self._deskflow_plugin: Any = None
         self._audio_plugin: Any = None
+        self._token: str = ""
+        self._last_claim_time: float = 0.0  # 最近一次收到切换声明的时刻（缩小同时发起竞态）
+
+    def set_auth_token(self, token: str) -> None:
+        """设置 Agent 访问令牌（两端需一致；空 = 不鉴权）"""
+        self._token = token
 
     def set_plugins(
         self,
@@ -69,8 +95,12 @@ class AgentServer:
             Route("/api/power/sleep", self._sleep, methods=["POST"]),
             Route("/api/power/shutdown", self._shutdown, methods=["POST"]),
             Route("/api/mode/set", self._set_mode, methods=["POST"]),
+            Route("/api/mode/claim", self._claim_mode, methods=["POST"]),
         ]
-        self._app = Starlette(routes=routes)
+        self._app = Starlette(
+            routes=routes,
+            middleware=[Middleware(_AuthMiddleware, token=self._token)],
+        )
         return self._app
 
     async def start(self) -> None:
@@ -338,6 +368,41 @@ class AgentServer:
                 AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
+
+    async def _claim_mode(self, request: Request) -> JSONResponse:
+        """对端切换意图声明（冲突裁决）
+
+        - 本机正在切换中 → 409（对端应等待重试）
+        - 1 秒内收到过重复声明 → 409（缩小两端同时发起的竞态窗口）
+        - 否则 → 200（可切换）
+        """
+        try:
+            body = await request.json()
+            mode_name = body.get("mode", "")
+        except Exception:
+            mode_name = ""
+        if hasattr(self, "_state_manager") and self._state_manager and self._state_manager.is_transitioning:
+            target = self._state_manager.target_mode
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": "conflict",
+                    "target_mode": target.name if target else None,
+                    "message": f"本机正在切换（目标 {target.name if target else '未知'}），请稍后再试",
+                },
+                status_code=409,
+            )
+        now = time.monotonic()
+        if self._last_claim_time and now - self._last_claim_time < 1.0:
+            return JSONResponse(
+                {"success": False, "error": "busy", "message": "正在处理切换声明，请稍后再试"},
+                status_code=409,
+            )
+        self._last_claim_time = now
+        logger.info(f"Mode claim accepted: {mode_name or '?'}")
+        return JSONResponse(
+            {"success": True, "message": f"claimed {mode_name or '?'}"}
+        )
 
     async def _set_mode(self, request: Request) -> JSONResponse:
         """接收远端模式变更通知，并执行本机对应的显示器配置

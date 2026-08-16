@@ -19,11 +19,13 @@ class MacClient:
     向 Windows Agent 发送 HTTP 请求。
     """
 
-    def __init__(self, host: str = "192.168.1.100", port: int = 5000, timeout: float = 10.0) -> None:
+    def __init__(self, host: str = "192.168.1.100", port: int = 5000, timeout: float = 10.0, token: str = "") -> None:
         self.host = host
         self.port = port
+        self.token = token
         self._base_url = f"http://{host}:{port}"
         self._timeout = timeout
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -32,6 +34,7 @@ class MacClient:
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=self._timeout,
+                headers=self._headers,
             )
         return self._client
 
@@ -220,3 +223,18 @@ class MacClient:
         except Exception as e:
             logger.error(f"Set mode failed: {e}")
             return False
+
+    async def claim_mode(self, mode_name: str) -> bool:
+        """向远端声明切换意图
+
+        Returns:
+            bool: True = 远端空闲可切换；False = 远端正在切换（应等待重试）
+        """
+        try:
+            client = await self._get_client()
+            resp = await client.post("/api/mode/claim", json={"mode": mode_name})
+            return resp.status_code == 200
+        except Exception:
+            # 远端不可达时不阻塞切换（离线场景由预检/WoL 流程处理）
+            logger.debug("Mode claim failed (remote unreachable), proceeding")
+            return True

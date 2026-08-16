@@ -313,6 +313,12 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
 
+    def _generate_token(self) -> None:
+        """生成随机 Agent 访问令牌"""
+        import secrets
+
+        self._agent_token.setText(secrets.token_hex(16))
+
     def _export_config(self) -> None:
         """导出配置到用户指定路径"""
         from PySide6.QtWidgets import QFileDialog, QMessageBox
@@ -357,6 +363,20 @@ class SettingsDialog(QDialog):
         self._local_port = QSpinBox()
         self._local_port.setRange(1, 65535)
         local_form.addRow("监听端口:", self._local_port)
+
+        # Agent 访问令牌（两端需一致；空 = 不鉴权）
+        self._agent_token = QLineEdit()
+        token_gen_btn = QPushButton("生成")
+        token_gen_btn.setFixedWidth(60)
+        token_gen_btn.clicked.connect(self._generate_token)
+        token_row = QHBoxLayout()
+        token_row.addWidget(self._agent_token)
+        token_row.addWidget(token_gen_btn)
+        local_form.addRow("Agent 访问令牌:", token_row)
+        token_hint = QLabel("设置后两端必须一致；未授权设备将无法控制本机（含关闭显示器/关机）")
+        token_hint.setStyleSheet("color: #888; font-size: 11px;")
+        token_hint.setWordWrap(True)
+        local_form.addRow("", token_hint)
 
         # WoL 网卡下拉
         self._wol_nic = QComboBox()
@@ -626,6 +646,9 @@ class SettingsDialog(QDialog):
         else:
             self._local_port.setValue(cfg.windows.port)
 
+        # Agent 访问令牌
+        self._agent_token.setText(cfg.agent_token)
+
         # WoL 网卡
         if cfg.wol_nic:
             idx = self._wol_nic.findData(cfg.wol_nic)
@@ -801,6 +824,7 @@ class SettingsDialog(QDialog):
         updates = {
             **local_config,
             "wol_nic": self._wol_nic.currentData() or "",
+            "agent_token": self._agent_token.text().strip(),
             "display": {
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,

@@ -126,6 +126,7 @@ def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager
     port = config.mac.port if is_mac else config.windows.port
     server = AgentServer(host="0.0.0.0", port=port)
     server.set_state_manager(state_manager)
+    server.set_auth_token(config.agent_token)
 
     # 注入插件，使 API 端点可用
     display = plugin_registry.get("betterdisplay") if is_mac else plugin_registry.get("multimonitortool")

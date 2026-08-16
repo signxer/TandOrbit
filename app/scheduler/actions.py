@@ -683,6 +683,87 @@ class SwitchDisplayInputsAction(Action):
         return True
 
 
+class VerifyDisplayInputsAction(Action):
+    """DDC/CI 输入源切换后读回验证（端到端真值）
+
+    读回每个显示器的输入源（VCP 0x60），与目标模式的预期输入比对；
+    不匹配则重新切换并重试。显示器不支持读回（返回 None/UNKNOWN）时视为不可验证，不误报。
+    """
+
+    def __init__(
+        self,
+        ddc_plugin: Any = None,
+        input_map: dict[str, dict[str, str]] | None = None,
+        target_mode: str = "",
+        max_attempts: int = 3,
+        interval: float = 2.0,
+    ) -> None:
+        super().__init__(f"Verify display inputs ({target_mode or '?'})")
+        self._ddc = ddc_plugin
+        self._input_map = input_map or {}
+        self._target_mode = target_mode
+        self._max_attempts = max_attempts
+        self._interval = interval
+
+    async def execute(self) -> bool:
+        if not self._ddc or not self._input_map or not self._target_mode:
+            return True
+        status = getattr(self._ddc, "status", None)
+        if status is not None and getattr(status, "name", "") == "ERROR":
+            logger.warning("DDC 插件不可用，跳过输入源验证")
+            return True
+
+        from app.enums import InputSource
+
+        all_ok = True
+        for display_id, mapping in self._input_map.items():
+            expected_name = (mapping.get(self._target_mode) or "").strip()
+            if not expected_name:
+                continue
+            try:
+                expected = InputSource(expected_name)
+            except ValueError:
+                logger.warning(f"未知输入源: {expected_name!r}（显示器 {display_id}），跳过验证")
+                continue
+
+            ok = False
+            for attempt in range(self._max_attempts):
+                try:
+                    current = await self._ddc.get_input_source(int(display_id))
+                except Exception as e:
+                    logger.warning(f"DDC 读回异常（显示器 {display_id}）: {e}")
+                    current = None
+                if current == expected:
+                    logger.info(f"DDC 验证: 显示器 {display_id} 输入源 = {expected_name} ✓")
+                    ok = True
+                    break
+                if current is None or current == InputSource.UNKNOWN:
+                    # 显示器不支持读回输入源 → 视为不可验证，不误报失败
+                    logger.warning(
+                        f"DDC 验证: 显示器 {display_id} 无法读取输入源，跳过验证（已尽力切换）"
+                    )
+                    ok = True
+                    break
+                logger.warning(
+                    f"DDC 验证: 显示器 {display_id} 输入源 {current.value} != 预期 {expected_name}"
+                    f"（第 {attempt + 1} 次）"
+                )
+                # 重新应用输入源后等待
+                try:
+                    await self._ddc.set_input_source(int(display_id), expected)
+                except Exception as e:
+                    logger.warning(f"DDC 重切异常（显示器 {display_id}）: {e}")
+                await asyncio.sleep(self._interval)
+
+            if not ok:
+                logger.error(f"DDC 验证失败: 显示器 {display_id} 未能切换到 {expected_name}")
+                all_ok = False
+        return all_ok
+
+    async def rollback(self) -> bool:
+        return True
+
+
 class DisplaySleepAction(Action):
     """仅关闭显示器（不休眠电脑），让显示器自动识别其他信号源"""
 

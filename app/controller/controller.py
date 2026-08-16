@@ -33,6 +33,7 @@ from app.scheduler.actions import (
     SetAudioMacAction,
     StopDeskflowAction,
     SwitchDisplayInputsAction,
+    VerifyDisplayInputsAction,
     WakeWindowsAction,
 )
 from app.scheduler.scheduler import Scheduler
@@ -62,11 +63,11 @@ class Controller:
         self._win_client: MacClient | None = None  # Mac → Windows
         self._mac_client: MacClient | None = None  # Windows → Mac
         self.last_error: str = ""  # 最近一次切换失败原因（供 GUI 展示）
-        # 切换历史（内存保留，供"切换记录"看板）
-        from collections import deque
-        import threading
-        self._switch_history: deque[dict[str, object]] = deque()
-        self._history_lock = threading.Lock()
+        # 切换历史（SQLite 持久化，重启不丢）
+        from app.history import SwitchHistoryStore
+        self._history_store = SwitchHistoryStore(
+            self._config.data_dir / "state.db"
+        )
 
     @property
     def current_mode(self) -> Mode:
@@ -92,9 +93,11 @@ class Controller:
             self._win_client is None
             or self._win_client.host != cfg.host
             or self._win_client.port != cfg.port
+            or self._win_client.token != self._config.config.agent_token
         ):
             self._win_client = MacClient(
-                host=cfg.host, port=cfg.port, timeout=cfg.timeout
+                host=cfg.host, port=cfg.port, timeout=cfg.timeout,
+                token=self._config.config.agent_token,
             )
         return self._win_client
 
@@ -105,9 +108,11 @@ class Controller:
             self._mac_client is None
             or self._mac_client.host != cfg.mac.host
             or self._mac_client.port != cfg.mac.port
+            or self._mac_client.token != cfg.agent_token
         ):
             self._mac_client = MacClient(
-                host=cfg.mac.host, port=cfg.mac.port, timeout=cfg.windows.timeout
+                host=cfg.mac.host, port=cfg.mac.port, timeout=cfg.windows.timeout,
+                token=cfg.agent_token,
             )
         return self._mac_client
 
@@ -150,9 +155,10 @@ class Controller:
                         mac_display_plugin=display,
                         secondary_display_id=secondary_id,
                     ))
-                # 可选：DDC/CI 主动把显示器输入源切到 Mac
+                # 可选：DDC/CI 主动把显示器输入源切到 Mac（并读回验证）
                 if input_map:
                     pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "mac"))
+                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "mac"))
                 # Mac 端：唤醒全部显示器 + 停止 Deskflow + 切音频
                 pipeline.add_action(
                     ConfigureDisplaysForMac(mac_display_plugin=display)
@@ -164,9 +170,10 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # 可选：DDC/CI 主动把显示器输入源切到 Mac
+                # 可选：DDC/CI 主动把显示器输入源切到 Mac（并读回验证）
                 if input_map:
                     pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "mac"))
+                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "mac"))
                 # Windows 端：停 Deskflow → 关屏（电源关，信号消失后显示器切到 Mac）
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
                 pipeline.add_action(LocalDisplayOffAction())
@@ -188,17 +195,19 @@ class Controller:
                     agent_port=cfg.windows.port,
                     timeout=60.0,
                 ))
-                # 可选：DDC/CI 主动把显示器输入源切到 Windows
+                # 可选：DDC/CI 主动把显示器输入源切到 Windows（并读回验证）
                 if input_map:
                     pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "windows"))
+                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "windows"))
                 pipeline.add_action(
                     ConfigureDisplaysForWindows(mac_display_plugin=display)
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
-                # 可选：DDC/CI 主动把显示器输入源切到 Windows
+                # 可选：DDC/CI 主动把显示器输入源切到 Windows（并读回验证）
                 if input_map:
                     pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "windows"))
+                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "windows"))
                 # Windows 端：启用所有显示器 → 扩展拓扑 → 验证
                 pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
                 pipeline.add_action(SetDisplayModeAction("extend", display_plugin=display))
@@ -269,25 +278,31 @@ class Controller:
             self.last_error = f"无法设置目标状态: {target.name}"
             return False
 
-        # 3. 切换前预检（对端在线、本机显示器插件可用）
+        # 3. 切换前仲裁：向对端声明意图，对端切换中则等待其完成（最多 30s）
+        if not await self._claim_remote(target):
+            self._state.rollback_transition()
+            logger.error(f"Mode claim failed for {target.name}: {self.last_error}")
+            return False
+
+        # 4. 切换前预检（对端在线、本机显示器插件可用）
         if not await self._precheck(target):
             self._state.rollback_transition()
             logger.error(f"Precheck failed for {target.name}: {self.last_error}")
             return False
 
-        # 4. 预同步远端（先让远端完成配置，再操作本机，避免两端互相干扰）
+        # 5. 预同步远端（先让远端完成配置，再操作本机，避免两端互相干扰）
         await self._sync_mode_to_remote(target)
 
-        # 5. 构建管道（动态构建，不依赖预注册）
+        # 6. 构建管道（动态构建，不依赖预注册）
         pipeline = self._build_pipeline(self._state.current_mode, target)
 
-        # 6. 开始转换
+        # 7. 开始转换
         if not self._state.begin_transition():
             self._state.rollback_transition()
             self.last_error = "系统正在切换中，请稍后再试"
             return False
 
-        # 7. 执行管道
+        # 8. 执行管道
         success = await pipeline.execute()
         if not success:
             self._state.rollback_transition()
@@ -297,17 +312,17 @@ class Controller:
             self._record_switch(from_mode, target, False, start_time, self.last_error)
             return False
 
-        # 8. 提交状态
+        # 9. 提交状态
         self._state.commit_transition()
 
-        # 9. 后同步确认 + 端到端验证（带重试）
+        # 10. 后同步确认 + 端到端验证（带重试）
         if not await self._post_sync_and_verify(target):
             self._state.rollback_transition()
             logger.error(f"Remote display verification failed for {target.name}: {self.last_error}")
             self._record_switch(from_mode, target, False, start_time, self.last_error)
             return False
 
-        # 10. 持久化上次模式（启动恢复用）
+        # 11. 持久化上次模式（启动恢复用）
         try:
             self._config.config.last_mode = target.name
             self._config.save()
@@ -317,6 +332,31 @@ class Controller:
         self._record_switch(from_mode, target, True, start_time, "")
         logger.info(f"Mode switched to {target.name}")
         return True
+
+    async def _claim_remote(
+        self, target: Mode, timeout: float = 30.0, interval: float = 2.0
+    ) -> bool:
+        """向对端声明切换意图；对端切换中则等待其完成（默认最多 30 秒）
+
+        冲突裁决：两端同时发起切换时，后声明的一方等待先声明的一方完成，
+        避免双端动作并发执行互相干扰。
+        """
+        import asyncio
+        import platform
+
+        if platform.system() == "Darwin":
+            claim = self._get_win_client().claim_mode
+        else:
+            claim = self._get_mac_client().claim_mode
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if await claim(target.name):
+                return True
+            logger.info(f"Remote busy, waiting to claim {target.name}...")
+            await asyncio.sleep(interval)
+        self.last_error = f"对端正在切换中（{timeout:.0f} 秒内未完成），请稍后再试"
+        return False
 
     async def _precheck(self, target: Mode) -> bool:
         """切换前预检：目标模式依赖的对端 Agent 与本机显示器插件可用性"""
@@ -349,7 +389,7 @@ class Controller:
         start_time: float,
         error: str,
     ) -> None:
-        """记录一次切换（内存保留最近 100 条）"""
+        """记录一次切换（SQLite 持久化 + 内存缓存）"""
         import datetime
 
         record = {
@@ -360,24 +400,25 @@ class Controller:
             "duration_ms": round((time.monotonic() - start_time) * 1000),
             "error": error,
         }
-        with self._history_lock:
-            self._switch_history.append(record)
-            while len(self._switch_history) > 100:
-                self._switch_history.popleft()
+        try:
+            self._history_store.record(record)
+        except Exception as e:
+            logger.warning(f"Failed to persist switch history: {e}")
 
     def get_switch_history(self) -> list[dict[str, object]]:
         """获取切换历史（最新在前）"""
-        with self._history_lock:
-            return list(reversed(self._switch_history))
+        try:
+            return self._history_store.recent(100)
+        except Exception as e:
+            logger.warning(f"Failed to read switch history: {e}")
+            return []
 
     def get_success_rate(self, window: int = 20) -> tuple[int, int, float]:
         """近 window 次切换的成功率：返回 (成功数, 总数, 成功率)"""
-        history = self.get_switch_history()[:window]
-        total = len(history)
-        if total == 0:
+        try:
+            return self._history_store.success_rate(window)
+        except Exception:
             return 0, 0, 0.0
-        ok = sum(1 for h in history if h["success"])
-        return ok, total, ok / total
 
     async def _post_sync_and_verify(
         self, target: Mode, max_attempts: int = 3, interval: float = 2.0

@@ -4,11 +4,12 @@
 在本机管线内做本地验证，该函数直接返回 True。因此本文件测试仅在 macOS 上有效。
 """
 
+from __future__ import annotations
+
 import sys
 
 import pytest
 
-from app.communication.mac_client import MacClient
 from app.config import ConfigManager
 from app.controller.controller import Controller
 from app.enums import Mode
@@ -23,19 +24,36 @@ pytestmark = pytest.mark.skipif(
     reason="远端状态验证是 Mac 端专属逻辑（Windows 端在本机管线内验证，见 _verify_remote_state）",
 )
 
+# 共享临时目录：避免 Controller 的 SQLite 历史存储写入真实 ~/.tandorbit
+import tempfile
+from pathlib import Path
+
+_TMPDIR = tempfile.TemporaryDirectory(prefix="tandorbit_test_")
+
 
 class FakeWinClient:
     """模拟 Windows Agent 客户端（list_displays 返回固定列表）"""
 
-    def __init__(self, displays: list[DisplayInfo]) -> None:
+    def __init__(
+        self,
+        displays: list[DisplayInfo],
+        claim_results: list[bool] | None = None,
+    ) -> None:
         self.host = "192.168.1.100"
         self.port = 5000
+        self.token = ""
         self._displays = displays
+        self._claim_results = list(claim_results) if claim_results else []
 
     async def list_displays(self) -> list[DisplayInfo]:
         return self._displays
 
     async def set_mode(self, mode_name: str) -> bool:
+        return True
+
+    async def claim_mode(self, mode_name: str) -> bool:
+        if self._claim_results:
+            return self._claim_results.pop(0)
         return True
 
 
@@ -46,7 +64,7 @@ def _make_controller(displays: list[DisplayInfo]) -> Controller:
         state_manager=StateManager(bus),
         scheduler=Scheduler(bus),
         plugin_registry=PluginRegistry(bus),
-        config_manager=ConfigManager(),
+        config_manager=ConfigManager(Path(_TMPDIR.name) / "config.yaml"),
     )
     controller._win_client = FakeWinClient(displays)  # type: ignore[assignment]
     return controller
@@ -115,3 +133,29 @@ class TestPostSyncAndVerify:
         c = _make_controller([_d(1, False, primary=True), _d(2, True)])
         assert await c._post_sync_and_verify(Mode.WINDOWS, max_attempts=2, interval=0.0) is False
         assert "远端显示器状态验证失败" in c.last_error
+
+
+class TestClaimRemote:
+    """切换冲突仲裁：对端忙碌时等待重试"""
+
+    @pytest.mark.asyncio
+    async def test_claim_accepted_immediately(self) -> None:
+        c = _make_controller([])
+        assert await c._claim_remote(Mode.WINDOWS) is True
+
+    @pytest.mark.asyncio
+    async def test_claim_waits_when_busy_then_succeeds(self) -> None:
+        c = _make_controller([])
+        c._win_client._claim_results = [False, False, True]  # type: ignore[attr-defined]
+        assert await c._claim_remote(Mode.WINDOWS, timeout=10.0, interval=0.0) is True
+
+    @pytest.mark.asyncio
+    async def test_claim_gives_up_after_timeout(self) -> None:
+        c = _make_controller([])
+
+        async def always_busy(_mode_name: str) -> bool:
+            return False
+
+        c._win_client.claim_mode = always_busy  # type: ignore[method-assign]
+        assert await c._claim_remote(Mode.WINDOWS, timeout=0.05, interval=0.0) is False
+        assert "正在切换" in c.last_error

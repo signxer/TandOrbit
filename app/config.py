@@ -104,6 +104,7 @@ class AppConfig(BaseModel):
     hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
     wol_nic: str = ""  # 本机 WoL 网卡名，如 en0 / Ethernet
     last_mode: Optional[str] = None  # 上次成功切换的模式（启动恢复用）
+    agent_token: str = ""  # Agent 访问令牌（两端需一致；空 = 不鉴权，兼容旧配置）
     log_level: str = "INFO"
     log_dir: str = "logs"
     log_retention_days: int = 30
@@ -126,6 +127,11 @@ class ConfigManager:
     @property
     def config(self) -> AppConfig:
         return self._config
+
+    @property
+    def data_dir(self) -> Path:
+        """配置所在目录（状态数据如 state.db 也放这里）"""
+        return self._path.parent
 
     def load(self) -> AppConfig:
         """加载配置文件"""
