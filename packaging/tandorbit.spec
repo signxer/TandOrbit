@@ -25,6 +25,9 @@ a = Analysis(
         'starlette',
         'uvicorn',
         'httpx',
+        # sqlite3 的 C 扩展（PyInstaller 有时漏收，缺了会报 No module named '_sqlite3'）
+        'sqlite3',
+        '_sqlite3',
     ],
     hookspath=[],
     hooksconfig={},
@@ -54,6 +57,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    # Windows 图标（macOS 在下方 BUNDLE 中单独设置 icon.icns）
+    icon=os.path.join(ROOT, 'resources', 'icon.ico'),
 )
 
 coll = COLLECT(
@@ -74,7 +79,7 @@ if sys.platform == 'darwin':
         icon=os.path.join(ROOT, 'resources', 'icon.icns'),
         bundle_identifier='com.tandorbit.app',
         info_plist={
-            'CFBundleShortVersionString': '1.1.1',
+            'CFBundleShortVersionString': '2.1.1',
             'CFBundleName': 'TandOrbit',
             'NSHighResolutionCapable': True,
             'LSUIElement': True,  # 后台运行，不显示 Dock 图标

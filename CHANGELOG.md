@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.1.1] - 打包修复
+
+- **修复 Windows 打包报错 `No module named '_sqlite3'`**：PyInstaller 打包遗漏 sqlite3 的
+  C 扩展。spec 与 macOS 命令行均显式加入 `sqlite3` / `_sqlite3`。
+- **修复 Windows 打包无图标**：spec 的 `EXE` 补充 `icon=resources/icon.ico`。
+- **切换历史存储优雅降级**：即使将来任一环境缺少 `_sqlite3`，应用也不再崩溃，
+  自动退回内存模式（重启不保留，但功能可用）。
+- 修复 `SwitchHistoryStore` 启动加载时的自锁死锁（非重入锁嵌套）。
+- 修正打包版本号（`CFBundleShortVersionString` 1.1.1 → 2.1.1）。
+
 ## [2.1.0] - 安全与可靠性加固
 
 ### 🔐 安全

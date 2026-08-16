@@ -72,3 +72,44 @@ class TestSwitchHistory:
         c = _make_controller(tmp_path)
         assert c.get_switch_history() == []
         assert c.get_success_rate(20) == (0, 0, 0.0)
+
+
+class TestHistoryStoreDegradation:
+    """SQLite 不可用（如打包环境缺 _sqlite3）时优雅降级为内存模式"""
+
+    def test_store_degrades_to_memory(self, tmp_path: Path, monkeypatch) -> None:
+        from app.history import SwitchHistoryStore
+
+        def _boom(*args, **kwargs):
+            raise ImportError("No module named '_sqlite3'")
+
+        monkeypatch.setattr("app.history.sqlite3.connect", _boom)
+
+        store = SwitchHistoryStore(tmp_path / "state.db")
+        # 降级后仍可记录与读取（仅内存）
+        store.record({"time": "t", "from": "MAC", "to": "WINDOWS", "success": True, "duration_ms": 100, "error": ""})
+        store.record({"time": "t2", "from": "WINDOWS", "to": "SHARE", "success": False, "duration_ms": 50, "error": "x"})
+
+        history = store.recent(100)
+        assert len(history) == 2
+        assert history[0]["to"] == "SHARE"
+        assert history[0]["success"] is False
+
+        ok, total, rate = store.success_rate(20)
+        assert total == 2
+        assert ok == 1
+        assert rate == 0.5
+
+    def test_controller_survives_sqlite_failure(self, tmp_path: Path, monkeypatch) -> None:
+        """Controller 构造不因 SQLite 缺失而崩溃"""
+        import time
+
+        def _boom(*args, **kwargs):
+            raise ImportError("No module named '_sqlite3'")
+
+        monkeypatch.setattr("app.history.sqlite3.connect", _boom)
+
+        c = _make_controller(tmp_path)
+        c._record_switch(Mode.MAC, Mode.WINDOWS, True, time.monotonic(), "")
+        assert len(c.get_switch_history()) == 1
+        assert c.get_success_rate(20) == (1, 1, 1.0)
