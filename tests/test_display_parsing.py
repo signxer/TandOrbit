@@ -110,3 +110,31 @@ class TestBetterDisplayParsing:
         plugin = BetterDisplayPlugin(EventBus(), {})
         assert plugin._parse_identifiers("") == []
         assert plugin._parse_identifiers("garbage") == []
+
+
+class TestBetterDisplayNestedParsing:
+    """identifiers 输出为嵌套对象（{"identifiers": [...]}）的解析"""
+
+    def test_parse_nested_object(self) -> None:
+        plugin = BetterDisplayPlugin(EventBus(), {})
+        output = (
+            '{"identifiers": ['
+            '{"tagID": 100, "name": "DELL U2720Q", "deviceType": "Display", "main": 1},'
+            '{"tagID": 200, "name": "LG 27GN950", "deviceType": "Display", "main": 0}'
+            "]}"
+        )
+        displays = plugin._parse_identifiers(output)
+        assert len(displays) == 2
+        assert displays[0].id == 100
+        assert displays[0].name == "DELL U2720Q"
+        assert displays[0].is_primary
+        assert not displays[1].is_primary
+
+    def test_parse_displays_key(self) -> None:
+        plugin = BetterDisplayPlugin(EventBus(), {})
+        output = (
+            '{"displays": [{"tagID": 5, "name": "A", "deviceType": "Display"}]}'
+        )
+        displays = plugin._parse_identifiers(output)
+        assert len(displays) == 1
+        assert displays[0].id == 5

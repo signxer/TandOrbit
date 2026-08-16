@@ -89,7 +89,10 @@ class BetterDisplayPlugin(Plugin):
     def _parse_identifiers(output: str) -> list[DisplayInfo]:
         """解析 betterdisplaycli get --identifiers 输出（纯函数，便于测试）
 
-        输出可能是 JSON 数组，也可能是多行/逗号分隔的独立 JSON 对象，
+        输出可能是：
+        - JSON 数组
+        - 多行/逗号分隔的独立 JSON 对象
+        - 单个 JSON 对象，内含数组字段（如 {"identifiers": [...]} / {"displays": [...]}）
         这里做防御性解析。
         """
         import json
@@ -105,20 +108,34 @@ class BetterDisplayPlugin(Plugin):
                 logger.error(f"Failed to parse display list JSON: {e}")
                 return []
         else:
-            decoder = json.JSONDecoder()
-            idx = 0
-            while idx < len(text):
-                while idx < len(text) and text[idx] in " \t\r\n,":
-                    idx += 1
-                if idx >= len(text):
-                    break
-                try:
-                    obj, end = decoder.raw_decode(text, idx)
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse display list JSON: {e}")
-                    break
-                items.append(obj)
-                idx = end
+            # 先尝试整体作为单个 JSON 值（可能是嵌套对象）
+            try:
+                obj = json.loads(text)
+            except json.JSONDecodeError:
+                obj = None
+            if isinstance(obj, list):
+                items = obj
+            elif isinstance(obj, dict):
+                # 取第一个值为数组的字段（如 identifiers/displays/screens）
+                for key, value in obj.items():
+                    if isinstance(value, list):
+                        items = value
+                        break
+            else:
+                decoder = json.JSONDecoder()
+                idx = 0
+                while idx < len(text):
+                    while idx < len(text) and text[idx] in " \t\r\n,":
+                        idx += 1
+                    if idx >= len(text):
+                        break
+                    try:
+                        parsed, end = decoder.raw_decode(text, idx)
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse display list JSON: {e}")
+                        break
+                    items.append(parsed)
+                    idx = end
 
         displays: list[DisplayInfo] = []
         for item in items:

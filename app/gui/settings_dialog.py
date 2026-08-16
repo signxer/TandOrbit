@@ -481,6 +481,12 @@ class SettingsDialog(QDialog):
         row.addStretch()
         form.addRow("", row)
         form.addRow("", hint)
+        # 列表读取失败/插件异常时的原因提示（有数据时自动隐藏）
+        self._display_status = QLabel("")
+        self._display_status.setStyleSheet("color: #C0392B; font-size: 11px;")
+        self._display_status.setWordWrap(True)
+        self._display_status.hide()
+        form.addRow("", self._display_status)
         layout.addRow(group)
 
         # --- DDC/CI 输入源切换（可选，默认关闭） ---
@@ -706,6 +712,7 @@ class SettingsDialog(QDialog):
         self._primary_id.clear()
         self._secondary_id.clear()
         self._share_display.clear()
+        self._display_plugin = None
 
         if not self._plugin_provider:
             self._populate_displays([])
@@ -715,6 +722,7 @@ class SettingsDialog(QDialog):
         if not display_plugin:
             self._populate_displays([])
             return
+        self._display_plugin = display_plugin
 
         def _worker() -> None:
             try:
@@ -733,6 +741,15 @@ class SettingsDialog(QDialog):
     def _populate_displays(self, displays: list) -> None:
         """后台线程返回显示器列表后填充下拉框并恢复当前选择"""
         cfg = self._config_manager.config
+
+        # 列表为空时给出原因提示（帮助判断是插件问题还是配置问题）
+        if self._display_status:
+            if displays:
+                self._display_status.hide()
+            else:
+                self._display_status.setText(f"⚠ {self._display_failure_reason()}")
+                self._display_status.show()
+
         self._primary_id.clear()
         self._secondary_id.clear()
         self._share_display.clear()
@@ -744,9 +761,9 @@ class SettingsDialog(QDialog):
                 self._secondary_id.addItem(label, str(d.id))
                 self._share_display.addItem(label, str(d.id))
         else:
-            # 插件不可用时，用配置里的 ID 作为占位项
+            # 插件未返回列表：用配置里的 ID 作为占位项，并明确标注
             for did in (cfg.display.primary_id, cfg.display.secondary_id, cfg.display.share_display_id):
-                label = f"Display {did}"
+                label = f"Display {did}（未检测到列表）"
                 self._primary_id.addItem(label, str(did))
                 self._secondary_id.addItem(label, str(did))
                 self._share_display.addItem(label, str(did))
@@ -754,6 +771,18 @@ class SettingsDialog(QDialog):
         self._set_combo_value(self._primary_id, str(cfg.display.primary_id))
         self._set_combo_value(self._secondary_id, str(cfg.display.secondary_id))
         self._set_combo_value(self._share_display, str(cfg.display.share_display_id))
+
+    def _display_failure_reason(self) -> str:
+        """分析显示器列表读取失败的原因（插件状态/错误信息）"""
+        plugin = getattr(self, "_display_plugin", None)
+        if plugin is None:
+            return "显示器插件不可用（未注册）"
+        status = getattr(plugin, "status", None)
+        status_name = getattr(status, "name", "")
+        init_error = getattr(plugin, "_init_error", "") or ""
+        if status_name == "ERROR":
+            return f"显示器插件初始化失败：{init_error or '未知原因'}"
+        return "未能读取显示器列表（插件未返回数据，请确认工具已安装并运行，或查看日志）"
 
     def _refresh_audio(self) -> None:
         """从插件异步刷新音频设备列表（后台线程，避免冻结 GUI）"""
