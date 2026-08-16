@@ -432,6 +432,9 @@ class AgentServer:
                     if from_mode != mode:
                         self._state_manager.force_set(mode)
                         logger.info(f"Mode synced from remote: {mode_name}")
+                        # 远端同步也持久化 last_mode，保持两端共识一致，
+                        # 否则重启会恢复到"本端上次成功切换"的旧状态（如 Windows 端错显 Mac 模式）
+                        self._persist_last_mode(mode)
                     # 即使已经是目标模式也重新应用显示器配置（幂等），
                     # 修复从 Share 切出时远端显示器被关闭后无人重新启用的问题
             if platform.system() == "Windows":
@@ -446,6 +449,18 @@ class AgentServer:
                 AgentResponse(success=False, error=str(e)).model_dump(mode="json"),
                 status_code=500,
             )
+
+    @staticmethod
+    def _persist_last_mode(mode: Mode) -> None:
+        """持久化 last_mode（远端同步触发时），与本地切换成功的保存保持一致"""
+        try:
+            from app.config import ConfigManager
+
+            cm = ConfigManager()
+            cm.config.last_mode = mode.name
+            cm.save()
+        except Exception as e:
+            logger.warning(f"Failed to persist last_mode (remote sync {mode.name}): {e}")
 
     async def _apply_display_mode(self, mode: Mode, from_mode: Mode | None = None) -> None:
         """Windows 端：根据模式切换显示器拓扑与电源
