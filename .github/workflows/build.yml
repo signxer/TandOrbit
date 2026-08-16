@@ -31,21 +31,12 @@ jobs:
         shell: bash
         run: |
           # pytest 在 Windows 上存在"测试全过但进程返回非 0"的环境问题
-          # (pytest-dev/pytest#9320 同类), 故以 JUnit XML 结果判定真实成败
+          # (pytest-dev/pytest#9320 同类), 故生成 JUnit XML 由下一步判定真实成败
           python -m pytest tests/ -v --tb=long -ra --junitxml=test-results.xml || true
-          python - <<'PYEOF'
-          import sys
-          import xml.etree.ElementTree as ET
-          try:
-              root = ET.parse('test-results.xml').getroot()
-          except Exception as e:
-              print(f'无法解析测试结果 XML: {e}')
-              sys.exit(1)
-          fails = int(root.get('failures', 0)) + int(root.get('errors', 0))
-          print(f"JUnit 结果: tests={root.get('tests')} failures={root.get('failures')} "
-                f"errors={root.get('errors')} skipped={root.get('skipped')}")
-          sys.exit(1 if fails else 0)
-          PYEOF
+
+      - name: Verify test results
+        shell: bash
+        run: python scripts/check_test_results.py test-results.xml
 
       - name: Build macOS executable
         run: pyinstaller -F -w --icon=resources/icon.icns --add-data="resources:resources" --add-data="config:config" --hidden-import=sqlite3 --hidden-import=_sqlite3 --runtime-hook=packaging/runtime_hook.py --name=TandOrbit app/main.py
@@ -121,21 +112,12 @@ jobs:
         shell: bash
         run: |
           # pytest 在 Windows 上存在"测试全过但进程返回非 0"的环境问题
-          # (pytest-dev/pytest#9320 同类), 故以 JUnit XML 结果判定真实成败
+          # (pytest-dev/pytest#9320 同类), 故生成 JUnit XML 由下一步判定真实成败
           python -m pytest tests/ -v --tb=long -ra --junitxml=test-results.xml || true
-          python - <<'PYEOF'
-          import sys
-          import xml.etree.ElementTree as ET
-          try:
-              root = ET.parse('test-results.xml').getroot()
-          except Exception as e:
-              print(f'无法解析测试结果 XML: {e}')
-              sys.exit(1)
-          fails = int(root.get('failures', 0)) + int(root.get('errors', 0))
-          print(f"JUnit 结果: tests={root.get('tests')} failures={root.get('failures')} "
-                f"errors={root.get('errors')} skipped={root.get('skipped')}")
-          sys.exit(1 if fails else 0)
-          PYEOF
+
+      - name: Verify test results
+        shell: bash
+        run: python scripts/check_test_results.py test-results.xml
 
       - name: Build Windows GUI
         run: pyinstaller packaging/tandorbit.spec --noconfirm
