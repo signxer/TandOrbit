@@ -27,8 +27,9 @@ if suite is None:
 
 failures = int(suite.get("failures", 0))
 errors = int(suite.get("errors", 0))
+# 输出用 ASCII：Windows 控制台默认 cp1252, 中文会触发 UnicodeEncodeError
 print(
-    f"JUnit 结果: tests={suite.get('tests')} failures={failures} "
+    f"JUnit result: tests={suite.get('tests')} failures={failures} "
     f"errors={errors} skipped={suite.get('skipped')}"
 )
 sys.exit(1 if (failures + errors) > 0 else 0)
