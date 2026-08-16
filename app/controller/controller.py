@@ -612,7 +612,6 @@ class Controller:
 
     async def _reconcile_local_displays(self, mode: Mode) -> None:
         """按上次模式自愈本地显示器状态（auto_repair 开启时在启动时调用）"""
-        import asyncio
         import platform
 
         is_mac = platform.system() == "Darwin"

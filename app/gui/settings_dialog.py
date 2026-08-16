@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import platform
+import threading
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent
@@ -715,8 +717,6 @@ class SettingsDialog(QDialog):
             return
 
         def _worker() -> None:
-            import asyncio
-            import threading
             try:
                 coro = display_plugin.list_displays()
                 loop = asyncio.new_event_loop()
@@ -765,8 +765,6 @@ class SettingsDialog(QDialog):
             return
 
         def _worker() -> None:
-            import asyncio
-            import threading
             try:
                 coro = audio_plugin.list_devices()
                 loop = asyncio.new_event_loop()

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.2] - 修复设置对话框崩溃
+
+- **修复 `NameError: name 'threading' is not defined`**：`_refresh_displays`/`_refresh_audio`
+  的 `import threading` 误写在内部 `_worker` 函数里，而 `threading.Thread(...)` 在函数外调用；
+  已把 `threading`/`asyncio` 移到模块顶部。打开设置对话框即崩溃的问题修复。
+- 新增设置对话框回归测试（offscreen Qt 真实实例化，覆盖异步刷新路径）。
+
 ## [2.1.1] - 打包修复
 
 - **修复 Windows 打包报错 `No module named '_sqlite3'`**：PyInstaller 打包遗漏 sqlite3 的

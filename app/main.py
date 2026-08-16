@@ -600,7 +600,6 @@ def main() -> None:
             await asyncio.sleep(2)
         logger.error("Windows did not come online after WoL")
         _mode_sync.sync.emit()
-        from PySide6.QtWidgets import QApplication
         _msgbox(QMessageBox.Icon.Warning, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
 
     window.mode_switch_requested.connect(on_mode_switch)
