@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.5] - 修复 CI（根治）
+
+- **asyncio_mode 改为 strict**：pytest-asyncio 1.4.0 在 Windows 上存在收尾 bug——
+  最后一个测试为纯 sync 测试时，测试全过（91 passed, 12 skipped）但进程仍返回
+  exit code 1，CI 误报失败。strict 模式下 sync 测试完全不经过 asyncio 插件，根除该问题。
+- **锁定 pytest-asyncio<1.3**（使用验证过的 1.2.0），与 pytest<9 组合更稳定。
+
 ## [2.1.4] - 修复 CI
 
 - **锁定 pytest<9**：pytest 9.1.1 + pytest-asyncio 1.4.0 在 Windows 上存在兼容问题
