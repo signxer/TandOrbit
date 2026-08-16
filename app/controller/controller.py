@@ -291,7 +291,14 @@ class Controller:
             return False
 
         # 5. 预同步远端（先让远端完成配置，再操作本机，避免两端互相干扰）
-        await self._sync_mode_to_remote(target)
+        #    预检已确认对端 Agent 在线，这里再失败属于异常，直接中止，
+        #    避免"远端未配置、本机继续执行"导致半失败（用户可感知为切换失败）
+        if not await self._sync_mode_to_remote(target):
+            self._state.rollback_transition()
+            self.last_error = "预同步远端失败，无法切换"
+            logger.error(f"Pre-sync failed for {target.name}: {self.last_error}")
+            self._record_switch(from_mode, target, False, start_time, self.last_error)
+            return False
 
         # 6. 构建管道（动态构建，不依赖预注册）
         pipeline = self._build_pipeline(self._state.current_mode, target)
@@ -306,6 +313,8 @@ class Controller:
         success = await pipeline.execute()
         if not success:
             self._state.rollback_transition()
+            # 尽力让远端回到原模式，避免两端状态分裂
+            await self._sync_mode_to_remote(from_mode)
             action_name, action_error = pipeline.last_failure or ("Pipeline", "未知错误")
             self.last_error = f"动作 {action_name} 失败: {action_error}"
             logger.error(f"Failed to switch to {target.name}: {self.last_error}")
@@ -318,6 +327,8 @@ class Controller:
         # 10. 后同步确认 + 端到端验证（带重试）
         if not await self._post_sync_and_verify(target):
             self._state.rollback_transition()
+            # 远端可能已切成 target，尽力同步回原模式
+            await self._sync_mode_to_remote(from_mode)
             logger.error(f"Remote display verification failed for {target.name}: {self.last_error}")
             self._record_switch(from_mode, target, False, start_time, self.last_error)
             return False
@@ -476,8 +487,12 @@ class Controller:
             return True
         return True
 
-    async def _sync_mode_to_remote(self, mode: Mode) -> None:
-        """同步模式到远端（带重试）"""
+    async def _sync_mode_to_remote(self, mode: Mode) -> bool:
+        """同步模式到远端（带重试）
+
+        Returns:
+            bool: 是否在重试后成功
+        """
         import asyncio
         import platform
 
@@ -487,13 +502,14 @@ class Controller:
                     await self._get_win_client().set_mode(mode.name)
                 else:
                     await self._get_mac_client().set_mode(mode.name)
-                return  # 成功则退出
+                return True  # 成功则退出
             except Exception as e:
                 if attempt < 2:
                     logger.warning(f"Mode sync attempt {attempt + 1} failed: {e}, retrying...")
                     await asyncio.sleep(2.0)
                 else:
                     logger.error(f"Mode sync to remote failed after 3 attempts: {e}")
+        return False
 
     async def check_windows_agent(self) -> bool:
         """检查 Windows Agent 是否在线"""

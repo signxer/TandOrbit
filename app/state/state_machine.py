@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import time
+
 from loguru import logger
 
 from app.enums import Mode
@@ -31,6 +33,8 @@ class StateManager:
         self._current_mode: Mode = Mode.UNKNOWN
         self._target_mode: Mode | None = None
         self._transitioning: bool = False
+        self._transition_started_at: float = 0.0
+        self._transition_timeout: float = 120.0  # 切换超过 120s 视为卡死，自动复位
         self._event_bus = event_bus
         self._history: list[tuple[Mode, Mode]] = []
 
@@ -44,6 +48,15 @@ class StateManager:
 
     @property
     def is_transitioning(self) -> bool:
+        """切换中？超时自动复位，防止异常导致永久卡死（点击无响应）"""
+        if self._transitioning and self._transition_started_at:
+            if time.monotonic() - self._transition_started_at > self._transition_timeout:
+                logger.warning(
+                    f"切换超时（>{self._transition_timeout:.0f}s），自动复位 transitioning 状态"
+                )
+                self._transitioning = False
+                self._target_mode = None
+                self._transition_started_at = 0.0
         return self._transitioning
 
     def can_transition(self, target: Mode) -> bool:
@@ -74,6 +87,7 @@ class StateManager:
             logger.warning("Already transitioning")
             return False
         self._transitioning = True
+        self._transition_started_at = time.monotonic()
         logger.info(
             f"Transitioning: {self._current_mode.name} -> {self._target_mode.name}"
         )
@@ -87,6 +101,7 @@ class StateManager:
         self._current_mode = self._target_mode
         self._target_mode = None
         self._transitioning = False
+        self._transition_started_at = 0.0
         self._history.append((old_mode, self._current_mode))
         logger.info(f"State committed: {old_mode.name} -> {self._current_mode.name}")
         self._event_bus.publish(
@@ -106,6 +121,7 @@ class StateManager:
         )
         self._target_mode = None
         self._transitioning = False
+        self._transition_started_at = 0.0
 
     def force_set(self, mode: Mode) -> None:
         """强制设置状态（仅用于初始化或异常恢复）"""
@@ -113,6 +129,7 @@ class StateManager:
         self._current_mode = mode
         self._target_mode = None
         self._transitioning = False
+        self._transition_started_at = 0.0
         logger.warning(f"Force set mode: {old.name} -> {mode.name}")
         self._event_bus.publish(
             ModeChangedEvent(old_mode=old.name, new_mode=mode.name, source="StateManager")

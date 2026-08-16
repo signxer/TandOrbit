@@ -79,3 +79,22 @@ class TestStateManager:
         history = state_manager.get_history()
         assert len(history) == 1
         assert history[0] == (Mode.MAC, Mode.WINDOWS)  # 只有 commit 记录
+
+    def test_transition_timeout_auto_resets(self, state_manager: StateManager) -> None:
+        """切换超时自动复位，防止永久卡死导致点击无响应"""
+        state_manager.force_set(Mode.MAC)
+        state_manager.set_target(Mode.WINDOWS)
+        state_manager.begin_transition()
+        assert state_manager.is_transitioning
+        # 模拟切换卡死超过超时时间
+        state_manager._transition_started_at -= 121.0
+        assert not state_manager.is_transitioning
+        assert state_manager.target_mode is None
+
+    def test_normal_transition_not_affected(self, state_manager: StateManager) -> None:
+        state_manager.force_set(Mode.MAC)
+        state_manager.set_target(Mode.WINDOWS)
+        state_manager.begin_transition()
+        assert state_manager.is_transitioning  # 未超时仍为 True
+        state_manager.commit_transition()
+        assert state_manager.current_mode == Mode.WINDOWS
