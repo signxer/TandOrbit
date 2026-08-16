@@ -338,11 +338,16 @@ class ReconnectSecondaryDisplay(Action):
             if ok:
                 logger.info(f"Mac secondary display (tagID={secondary_id}) reconnected")
             else:
-                logger.warning(f"Mac secondary display (tagID={secondary_id}) reconnect failed")
-            return ok
+                # BetterDisplay 的 connected 操作是 Pro 功能；无 Pro 时副屏重连失败
+                # 不应拖垮整个切换（主屏唤醒照常进行），仅记录警告
+                logger.warning(
+                    f"Mac secondary display (tagID={secondary_id}) reconnect failed "
+                    "(BetterDisplay 连接/断开需 Pro 授权，或应用未运行；主屏切换不受影响)"
+                )
+            return True
         except Exception as e:
             logger.warning(f"Mac secondary display reconnect error: {e}")
-            return False
+            return True
 
     async def rollback(self) -> bool:
         return True
