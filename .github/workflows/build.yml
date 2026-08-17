@@ -25,7 +25,8 @@ jobs:
       - name: Check tag matches code version
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          CODE_VER=$(python -c "from app.updater import __version__; print(__version__)")
+          # 直接解析 updater.py 中的 __version__，避免安装依赖后再 import
+          CODE_VER=$(grep -oE '__version__ = "[0-9]+\.[0-9]+\.[0-9]+"' app/updater.py | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
           echo "tag=${TAG} code=${CODE_VER}"
           if [ "${TAG}" != "v${CODE_VER}" ]; then
             echo "::error::发布 tag ${TAG} 与代码版本 v${CODE_VER} 不一致，请先更新 app/updater.py 的 __version__ 与 pyproject.toml"
