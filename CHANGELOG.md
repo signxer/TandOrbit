@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.1] - 修复 Windows 主窗口布局重叠
+
+- 模式切换按钮上下 padding 12px→6px，释放内部空间，避免 Windows 大字体（Segoe UI）下按钮内容被下边缘裁剪并与快捷键提示重叠。
+- 新增主窗口布局回归测试。
+
+
 ## [2.2.0] - 显示器身份绑定与拓扑恢复
 
 - Windows 枚举增加 `monitor_id`/`device_id` 身份字段，支持按 Monitor ID 定位显示器，避免 DISPLAY 编号漂移。

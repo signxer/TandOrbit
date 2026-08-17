@@ -126,7 +126,7 @@ class ModeButton(QPushButton):
             border: 2px solid {border};
             border-radius: 10px;
             background: {bg};
-            padding: 12px 4px;
+            padding: 6px 4px;
             color: {text};
         }}
         ModeButton:hover {{
@@ -143,7 +143,7 @@ class ModeButton(QPushButton):
             border: 2px solid {checked_border};
             border-radius: 10px;
             background: {checked_bg};
-            padding: 12px 4px;
+            padding: 6px 4px;
             color: {text};
         }}
     """.format(**_COLORS)
