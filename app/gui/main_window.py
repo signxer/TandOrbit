@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from app.enums import Mode
 
 # 平台字体
-_FONT = ".AppleSystemUIFont" if platform.system() == "Darwin" else "Segoe UI"
+_FONT = ".AppleSystemUIFont" if platform.system() == "Darwin" else "Microsoft YaHei"
 
 
 def _detect_dark_mode() -> bool:

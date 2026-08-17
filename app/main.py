@@ -418,7 +418,7 @@ def main() -> None:
         if not failed:
             return
         from app.gui.requirements_dialog import RequirementsDialog
-        dlg = RequirementsDialog(window)
+        dlg = RequirementsDialog(window, config_manager=config_manager)
         dlg.exec()
 
     worker.init_report.connect(on_init_report)
