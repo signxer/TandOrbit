@@ -34,8 +34,15 @@ def _check_betterdisplay() -> bool:
     return any(Path(p).exists() for p in paths)
 
 
-def _check_multimonitortool() -> bool:
-    return shutil.which("MultiMonitorTool.exe") is not None
+def _check_multimonitortool(tools_config: dict | None = None) -> bool:
+    if shutil.which("MultiMonitorTool.exe"):
+        return True
+    # 用户配置了自定义路径
+    if tools_config:
+        cfg_path = tools_config.get("multimonitortool_path", "")
+        if cfg_path and Path(cfg_path).exists():
+            return True
+    return False
 
 
 def _check_deskflow() -> bool:
@@ -75,8 +82,9 @@ REQUIREMENTS: list[tuple[str, callable, str, str]] = [
 class RequirementsDialog(QDialog):
     """依赖检查对话框"""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, config_manager: Any | None = None) -> None:
         super().__init__(parent)
+        self._config_manager = config_manager
         self.setWindowTitle("TandOrbit — 环境检查")
         self.setMinimumWidth(440)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
@@ -156,11 +164,18 @@ class RequirementsDialog(QDialog):
         system = platform.system()
         all_ok = True
 
+        # 读配置中的 tools 路径，传给检查函数
+        tools_cfg = {}
+        if self._config_manager:
+            tools_cfg = getattr(self._config_manager.config, "tools", {})
         for name, check_fn, url, plat in REQUIREMENTS:
             if plat != "all" and plat != system:
                 continue
 
-            ok = check_fn()
+            if name == "MultiMonitorTool":
+                ok = _check_multimonitortool(tools_cfg)
+            else:
+                ok = check_fn()
             if not ok:
                 all_ok = False
 

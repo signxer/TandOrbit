@@ -92,8 +92,8 @@ while ($true) {
             is_enabled = $attached
             width      = 0
             height     = 0
-            monitor_id = $dd.DeviceID
-            device_id  = $dd.DeviceKey
+            monitor_id = [string]$dd.DeviceID
+            device_id  = [string]$dd.DeviceKey
         }
     }
     $i++
@@ -114,12 +114,15 @@ class MultiMonitorToolPlugin(Plugin):
 
     async def initialize(self) -> bool:
         """初始化：检查 MultiMonitorTool 是否可用"""
-        path = shutil.which("MultiMonitorTool.exe") or self._tool_path
-        if not shutil.which(path):
-            logger.warning(f"MultiMonitorTool not found at: {path}")
+        path = self._tool_path
+        # 先查 PATH，再查配置的绝对路径，不存在的绝对路径直接跳过
+        if shutil.which("MultiMonitorTool.exe"):
+            path = shutil.which("MultiMonitorTool.exe")
+        elif path and not shutil.which(path) and not Path(path).exists():
+            logger.warning(f"MultiMonitorTool not found at: {path}（配置路径不存在或不在 PATH 中）")
         self._tool_path = path
         self._set_status(PluginStatus.INITIALIZED)
-        logger.info("MultiMonitorTool plugin initialized")
+        logger.info(f"MultiMonitorTool plugin initialized (tool: {path})")
         return True
 
     async def enable(self) -> bool:
@@ -147,8 +150,14 @@ class MultiMonitorToolPlugin(Plugin):
         """列出所有显示器（EnumDisplayDevices，含已禁用/未连接的显示器）"""
         output = await self._run_powershell_script(_ENUM_DISPLAYS_SCRIPT)
         if output is None:
+            logger.warning("显示器枚举脚本执行失败（返回 None），无法获取显示器列表")
             return []
-        return self._parse_displays(output)
+        displays = self._parse_displays(output)
+        if not displays:
+            logger.warning(
+                f"显示器枚举脚本执行成功但返回空列表，输出内容: {output[:200] if output else '(空)'}"
+            )
+        return displays
 
     @staticmethod
     def _parse_displays(output: str) -> list[DisplayInfo]:

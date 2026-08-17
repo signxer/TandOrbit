@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.4] - 修复环境检查与枚举诊断
+
+- 修复环境检查不读配置路径：`_check_multimonitortool` 改为同时检查配置路径，`RequirementsDialog` 接受 `config_manager` 参数。
+- 修复枚举脚本中 `monitor_id`/`device_id` 为 null 时可能导致 `ConvertTo-Json` 失败的问题，加 `[string]` 强制转换。
+- 增强 `list_displays` 诊断日志：空结果时输出脚本原始内容，便于定位枚举失败原因。
+- 修复 MMT 初始化路径判断逻辑，消除对绝对路径的误警告。
+
+
 ## [2.2.3] - 修复版本号不同步
 
 - 修复 `app/updater.py` 的 `__version__` 停留在 2.1.3，导致每次启动都提示有新版本。
