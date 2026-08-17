@@ -74,43 +74,64 @@ public class EnumDisplay {
         string lpDevice, uint iDevNum, ref DISPLAY_DEVICE_EDID lpDisplayDevice, uint dwFlags);
 }
 "@
-$results = @()
-# 尝试读取 WmiMonitorID（EDID 中的产品名），非管理员可能失败，失败时忽略
+# 读取 WmiMonitorID（EDID 中的制造商代码 + 产品代码 / 产品名）
 $wmiMonitors = @()
 try {
     $wmiMonitors = Get-WmiObject -Namespace root/wmi -ClassName WmiMonitorID -ErrorAction Stop
 } catch {}
-# 建立 DISPLAYn -> 产品名 的映射
 $wmiNameMap = @{}
+$wmiMonIdMap = @{}
 foreach ($m in $wmiMonitors) {
     $inst = [string]($m.InstanceName)
     if ($inst -match 'DISPLAY(\d+)') {
         $did = [int]$Matches[1]
-        $productName = ($m.ProductNameID | ForEach-Object { [char]$_ }) -join ''
-        if ($productName -match '\S') {
-            $wmiNameMap[$did] = $productName
+        # 制造商代码 = ManufacturerName 的字符（如 LGD），产品代码 = ProductCodeID 的字符
+        $man = ($m.ManufacturerName | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ } | Where-Object { $_ -match '\S' }) -join ''
+        $prodCode = ($m.ProductCodeID | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ } | Where-Object { $_ -match '\S' }) -join ''
+        # 产品名（可能为空）
+        $prodName = ($m.ProductNameID | Where-Object { $_ -ne 0 } | ForEach-Object { [char]$_ } | Where-Object { $_ -match '\S' }) -join ''
+        # 例如 LGD + 0726 + (27GN950)
+        $label = ''
+        if ($prodName) {
+            $label = $man + $prodCode + ' ' + $prodName
+        } else {
+            $label = $man + $prodCode
+        }
+        if ($label) {
+            $wmiNameMap[$did] = $label
+        }
+        # monitor_id：如 LGD0726（稳定物理身份，不随 DISPLAY 编号变）
+        if ($man -or $prodCode) {
+            $wmiMonIdMap[$did] = ($man + $prodCode)
         }
     }
 }
+$results = @()
 foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
     if ($s.DeviceName -match 'DISPLAY(\d+)') {
         $id = [int]$Matches[1]
         $name = $s.DeviceName
         $monitor_id = ''
         $device_id = ''
-        # 优先用 WmiMonitorID 中的产品名，回退到 EnumDisplayDevices 的 DeviceString
-        if ($wmiNameMap.ContainsKey($id)) {
-            $name = $wmiNameMap[$id]
-        } else {
-            $dd = New-Object DISPLAY_DEVICE_EDID
-            $dd.cb = [System.Runtime.InteropServices.Marshal]::SizeOf([DISPLAY_DEVICE_EDID])
-            if ([EnumDisplay]::EnumDisplayDevices($s.DeviceName, 0, [ref]$dd, 0)) {
-                if ($dd.DeviceString -match '\S+') {
-                    $name = $dd.DeviceString
-                }
-                $monitor_id = [string]$dd.DeviceID
-                $device_id = [string]$dd.DeviceKey
+        # 修正 SizeOf：传实例而非类型
+        $dd = New-Object DISPLAY_DEVICE_EDID
+        $dd.cb = [System.Runtime.InteropServices.Marshal]::SizeOf($dd)
+        if ([EnumDisplay]::EnumDisplayDevices($s.DeviceName, 0, [ref]$dd, 0)) {
+            if ($dd.DeviceString -match '\S+') {
+                $name = $dd.DeviceString
             }
+            # DeviceID 形如 MONITOR\LGD0726\{...}\0001
+            $device_id = [string]$dd.DeviceKey
+            if ($dd.DeviceID -match 'MONITOR\\([^\\]+)\\') {
+                $monitor_id = $Matches[1]
+            }
+            # 优先用 WmiMonitorID 提供的制造商+产品代码（更稳定/可读）
+            if ($wmiNameMap.ContainsKey($id)) {
+                $name = $wmiNameMap[$id]
+            }
+        }
+        if (-not $monitor_id -and $wmiMonIdMap.ContainsKey($id)) {
+            $monitor_id = $wmiMonIdMap[$id]
         }
         $results += [pscustomobject]@{
             id         = $id
