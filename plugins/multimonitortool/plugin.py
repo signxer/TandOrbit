@@ -92,6 +92,8 @@ while ($true) {
             is_enabled = $attached
             width      = 0
             height     = 0
+            monitor_id = $dd.DeviceID
+            device_id  = $dd.DeviceKey
         }
     }
     $i++
@@ -175,9 +177,60 @@ class MultiMonitorToolPlugin(Plugin):
                     is_enabled=bool(item.get("is_enabled", False)),
                     width=int(item.get("width", 0) or 0),
                     height=int(item.get("height", 0) or 0),
+                    monitor_id=str(item.get("monitor_id", "") or ""),
+                    device_id=str(item.get("device_id", "") or ""),
                 )
             )
         return displays
+
+    @staticmethod
+    def find_display_by_identity(
+        displays: list[DisplayInfo],
+        monitor_id: str,
+    ) -> DisplayInfo | None:
+        """按 Monitor ID / Device ID 查找显示器（身份优先，不受 DISPLAY 编号漂移影响）
+
+        匹配规则：
+        - 精确匹配 monitor_id；
+        - 若 monitor_id 是短标识（如 DEL41A6），则模糊匹配包含关系；
+        - 否则尝试 device_id 匹配。
+        """
+        if not monitor_id:
+            return None
+        monitor_id = monitor_id.strip()
+        # 精确
+        for d in displays:
+            if d.monitor_id and d.monitor_id == monitor_id:
+                return d
+        # 短标识包含
+        short = monitor_id.upper()
+        for d in displays:
+            mid = (d.monitor_id or "").upper()
+            if mid and short in mid:
+                return d
+        # device_id
+        for d in displays:
+            if d.device_id and d.device_id == monitor_id:
+                return d
+        return None
+
+    async def resolve_identity_id(self, monitor_id: str, fallback_id: int) -> int:
+        """按身份解析当前 DISPLAY 编号；找不到时回退配置数字并警告"""
+        if not monitor_id:
+            return fallback_id
+        displays = await self.list_displays()
+        found = self.find_display_by_identity(displays, monitor_id)
+        if found is not None:
+            logger.info(
+                f"身份解析: {monitor_id} -> DISPLAY{found.id} "
+                f"(当前枚举 {[d.id for d in displays]})"
+            )
+            return found.id
+        logger.warning(
+            f"未找到显示器身份 {monitor_id!r}，回退 DISPLAY{fallback_id}；"
+            f"当前枚举: {[d.id for d in displays]}"
+        )
+        return fallback_id
 
     async def enable_display(self, display_id: int, retries: int = 2) -> bool:
         """启用显示器（带重试）"""
@@ -233,11 +286,25 @@ class MultiMonitorToolPlugin(Plugin):
         """设置复制模式（兼容 /api/display/duplicate 端点调用）"""
         return await self.set_clone_mode(retries)
 
+    async def save_topology(self, path: str) -> bool:
+        """保存当前显示器完整拓扑（MultiMonitorTool /SaveConfig）"""
+        if not path:
+            return False
+        return await self._run_tool(f'/SaveConfig "{path}"')
+
+    async def restore_topology(self, path: str) -> bool:
+        """恢复之前保存的显示器拓扑（MultiMonitorTool /LoadConfig）"""
+        if not path:
+            return False
+        return await self._run_tool(f'/LoadConfig "{path}"')
+
     async def verify_display_mode(
         self,
         expected: str,
         primary_id: int = 1,
         secondary_id: int = 2,
+        primary_monitor_id: str = "",
+        secondary_monitor_id: str = "",
     ) -> bool:
         """验证显示器拓扑是否符合预期（基于真实枚举结果）
 
@@ -246,6 +313,8 @@ class MultiMonitorToolPlugin(Plugin):
                       或 "share"（共享模式：主屏禁用、副屏启用）
             primary_id: 主显示器 DISPLAY 编号（来自配置）
             secondary_id: 副显示器 DISPLAY 编号（来自配置）
+            primary_monitor_id: 主显示器 Monitor ID（优先于数字编号）
+            secondary_monitor_id: 副显示器 Monitor ID
         """
         try:
             displays = await self.list_displays()
@@ -259,6 +328,16 @@ class MultiMonitorToolPlugin(Plugin):
                 f"DISPLAY{d.id}({'on' if d.is_enabled else 'off'}{',primary' if d.is_primary else ''})"
                 for d in displays
             )
+
+        # 身份优先：用 Monitor ID 解析出当前 DISPLAY 编号，避免编号漂移
+        if primary_monitor_id:
+            resolved = self.find_display_by_identity(displays, primary_monitor_id)
+            if resolved is not None:
+                primary_id = resolved.id
+        if secondary_monitor_id:
+            resolved = self.find_display_by_identity(displays, secondary_monitor_id)
+            if resolved is not None:
+                secondary_id = resolved.id
 
         by_id = {d.id: d for d in displays}
         if expected == "extend":

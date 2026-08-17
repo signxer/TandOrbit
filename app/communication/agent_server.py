@@ -50,6 +50,7 @@ class AgentServer:
         self._host = host
         self._port = port
         self._config_manager = config_manager
+        self._topology_snapshot: str | None = None
         self._start_time = time.monotonic()
         self._app: Starlette | None = None
         self._display_plugin: Any = None
@@ -97,6 +98,7 @@ class AgentServer:
             Route("/api/power/shutdown", self._shutdown, methods=["POST"]),
             Route("/api/mode/set", self._set_mode, methods=["POST"]),
             Route("/api/mode/claim", self._claim_mode, methods=["POST"]),
+            Route("/api/mode/current", self._current_mode, methods=["GET"]),
         ]
         self._app = Starlette(
             routes=routes,
@@ -405,6 +407,15 @@ class AgentServer:
             {"success": True, "message": f"claimed {mode_name or '?'}"}
         )
 
+    async def _current_mode(self, request: Request) -> JSONResponse:
+        """返回本机当前模式（供对端状态对账）"""
+        mode = "UNKNOWN"
+        if hasattr(self, "_state_manager") and self._state_manager:
+            mode = self._state_manager.current_mode.name
+        return JSONResponse(
+            AgentResponse(success=True, data={"mode": mode}).model_dump(mode="json")
+        )
+
     async def _set_mode(self, request: Request) -> JSONResponse:
         """接收远端模式变更通知，并执行本机对应的显示器配置
 
@@ -481,17 +492,69 @@ class AgentServer:
 
         try:
             if mode == Mode.WINDOWS:
+                # 离开共享：先恢复进入共享前的拓扑快照，再启用全部 + 扩展 + 上电
+                if from_mode == Mode.SHARE:
+                    await self._restore_topology()
                 await self._enable_all_displays()
                 await self._display_plugin.set_extend_mode()
                 await self._power_on_displays()
             elif mode == Mode.SHARE:
-                await self._ensure_display_enabled(self._secondary_display_id())
+                # 进入共享：先保存完整拓扑，再保留副屏 + 禁用主屏
+                await self._save_topology()
+                primary = await self._resolve_primary_display_id()
+                secondary = await self._resolve_secondary_display_id()
+                await self._ensure_display_enabled(secondary)
                 await self._display_plugin.set_extend_mode()
-                await self._disable_display(self._primary_display_id())
+                await self._disable_display(primary)
             else:  # MAC
                 await self._turn_off_displays()
         except Exception as e:
             logger.warning(f"Failed to apply display mode {mode.name}: {e}")
+
+    def _topology_snapshot_path(self) -> str | None:
+        """拓扑快照文件路径（配置目录下）"""
+        try:
+            import os
+            from app.config import DEFAULT_CONFIG_PATH
+
+            return os.path.join(
+                os.path.dirname(str(DEFAULT_CONFIG_PATH)),
+                "topology_snapshot.cfg",
+            )
+        except Exception:
+            return None
+
+    async def _save_topology(self) -> None:
+        """保存当前 Windows 显示器拓扑（进入共享模式前）"""
+        plugin = self._display_plugin
+        path = self._topology_snapshot_path()
+        if plugin is None or path is None or not hasattr(plugin, "save_topology"):
+            return
+        try:
+            ok = await plugin.save_topology(path)
+            if ok:
+                self._topology_snapshot = path
+                logger.info(f"Windows 显示器拓扑已保存: {path}")
+            else:
+                logger.warning("保存 Windows 显示器拓扑失败")
+        except Exception as e:
+            logger.warning(f"保存 Windows 显示器拓扑异常: {e}")
+
+    async def _restore_topology(self) -> None:
+        """恢复进入共享模式前保存的 Windows 显示器拓扑"""
+        plugin = self._display_plugin
+        path = self._topology_snapshot
+        if plugin is None or path is None or not hasattr(plugin, "restore_topology"):
+            return
+        try:
+            ok = await plugin.restore_topology(path)
+            if ok:
+                logger.info(f"Windows 显示器拓扑已恢复: {path}")
+            else:
+                logger.warning("恢复 Windows 显示器拓扑失败")
+            self._topology_snapshot = None
+        except Exception as e:
+            logger.warning(f"恢复 Windows 显示器拓扑异常: {e}")
 
     async def _apply_mac_display_mode(self, mode: Mode) -> None:
         """Mac 端：收到远端模式变更后执行完整重配置（与本地管线语义一致）
@@ -514,15 +577,19 @@ class AgentServer:
 
     # --- Windows 显示器拓扑/电源辅助 ---
 
+    def _display_config(self) -> Any:
+        """获取显示器配置（注入的 ConfigManager 优先）"""
+        cm = self._config_manager
+        if cm is None:
+            from app.config import ConfigManager
+            cm = ConfigManager()
+            cm.load()
+        return cm.config.display
+
     def _primary_display_id(self) -> int:
         """主显示器 DISPLAY 编号（来自配置，默认 1）"""
         try:
-            cm = self._config_manager
-            if cm is None:
-                from app.config import ConfigManager
-                cm = ConfigManager()
-                cm.load()
-            return int(cm.config.display.primary_id)
+            return int(self._display_config().primary_id)
         except Exception as e:
             logger.warning(f"读取主显示器配置失败，使用默认 DISPLAY1: {e}")
             return 1
@@ -530,15 +597,40 @@ class AgentServer:
     def _secondary_display_id(self) -> int:
         """副显示器 DISPLAY 编号（来自配置，默认 2）"""
         try:
-            cm = self._config_manager
-            if cm is None:
-                from app.config import ConfigManager
-                cm = ConfigManager()
-                cm.load()
-            return int(cm.config.display.secondary_id)
+            return int(self._display_config().secondary_id)
         except Exception as e:
             logger.warning(f"读取副显示器配置失败，使用默认 DISPLAY2: {e}")
             return 2
+
+    async def _resolve_primary_display_id(self) -> int:
+        """主显示器：优先按 Monitor ID 解析，回退数字配置"""
+        plugin = self._display_plugin
+        identity = self._display_config().windows_primary_monitor_id
+        fallback = self._primary_display_id()
+        if plugin is None or not identity:
+            return fallback
+        if not hasattr(plugin, "resolve_identity_id"):
+            return fallback
+        try:
+            return await plugin.resolve_identity_id(identity, fallback)
+        except Exception as e:
+            logger.warning(f"主显示器身份解析失败，回退 DISPLAY{fallback}: {e}")
+            return fallback
+
+    async def _resolve_secondary_display_id(self) -> int:
+        """副显示器：优先按 Monitor ID 解析，回退数字配置"""
+        plugin = self._display_plugin
+        identity = self._display_config().windows_secondary_monitor_id
+        fallback = self._secondary_display_id()
+        if plugin is None or not identity:
+            return fallback
+        if not hasattr(plugin, "resolve_identity_id"):
+            return fallback
+        try:
+            return await plugin.resolve_identity_id(identity, fallback)
+        except Exception as e:
+            logger.warning(f"副显示器身份解析失败，回退 DISPLAY{fallback}: {e}")
+            return fallback
 
     async def _enable_all_displays(self) -> None:
         """启用所有被禁用的显示器"""

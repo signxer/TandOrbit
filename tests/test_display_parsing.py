@@ -138,3 +138,56 @@ class TestBetterDisplayNestedParsing:
         displays = plugin._parse_identifiers(output)
         assert len(displays) == 1
         assert displays[0].id == 5
+
+
+
+
+class TestDisplayIdentity:
+    """Monitor ID 身份解析与匹配（用 json.dumps 构造，避免转义问题）"""
+
+    @staticmethod
+    def _displays(*rows: dict) -> str:
+        import json
+        return json.dumps(list(rows))
+
+    def test_parse_monitor_id(self) -> None:
+        plugin = MultiMonitorToolPlugin(EventBus(), {})
+        output = self._displays(
+            {"id": 3, "name": "DISPLAY3", "is_primary": True, "is_enabled": True,
+             "monitor_id": r"MONITOR\DEL41A6\{abc}\0001", "device_id": r"\?\PCI#1"},
+            {"id": 4, "name": "DISPLAY4", "is_primary": False, "is_enabled": True,
+             "monitor_id": r"MONITOR\GSM5B9F\{def}\0001", "device_id": r"\?\PCI#2"},
+        )
+        displays = plugin._parse_displays(output)
+        assert len(displays) == 2
+        assert "DEL41A6" in displays[0].monitor_id
+        assert displays[1].monitor_id.startswith(r"MONITOR\GSM")
+
+    def test_find_by_exact_monitor_id(self) -> None:
+        plugin = MultiMonitorToolPlugin(EventBus(), {})
+        displays = plugin._parse_displays(self._displays(
+            {"id": 3, "name": "DISPLAY3", "is_primary": True, "is_enabled": True,
+             "monitor_id": r"MONITOR\DEL41A6\{abc}\0001"},
+            {"id": 4, "name": "DISPLAY4", "is_primary": False, "is_enabled": True,
+             "monitor_id": r"MONITOR\GSM5B9F\{def}\0001"},
+        ))
+        found = plugin.find_display_by_identity(displays, r"MONITOR\DEL41A6\{abc}\0001")
+        assert found is not None and found.id == 3
+
+    def test_find_by_short_monitor_id(self) -> None:
+        plugin = MultiMonitorToolPlugin(EventBus(), {})
+        displays = plugin._parse_displays(self._displays(
+            {"id": 4, "name": "DISPLAY4", "is_primary": False, "is_enabled": True,
+             "monitor_id": r"MONITOR\GSM5B9F\{def}\0001"},
+        ))
+        found = plugin.find_display_by_identity(displays, "GSM5B9F")
+        assert found is not None and found.id == 4
+
+    def test_find_returns_none_when_missing(self) -> None:
+        plugin = MultiMonitorToolPlugin(EventBus(), {})
+        displays = plugin._parse_displays(self._displays(
+            {"id": 3, "name": "DISPLAY3", "is_primary": True, "is_enabled": True,
+             "monitor_id": r"MONITOR\DEL41A6\{abc}\0001"},
+        ))
+        assert plugin.find_display_by_identity(displays, "NOPE") is None
+        assert plugin.find_display_by_identity(displays, "") is None

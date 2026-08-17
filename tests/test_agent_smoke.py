@@ -111,3 +111,18 @@ class TestRemoteModePersistence:
         assert cfg.display.primary_id == 3
         assert cfg.display.secondary_id == 4
         assert cfg.agent_token == "keep-me"
+
+
+class TestModeCurrentEndpoint:
+    def test_current_mode_returns_unknown_without_state(self) -> None:
+        resp = _client(AgentServer()).get("/api/mode/current")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["mode"] == "UNKNOWN"
+
+    def test_current_mode_reflects_state(self) -> None:
+        sm = StateManager(EventBus())
+        sm.force_set(Mode.WINDOWS)
+        server = AgentServer()
+        server.set_state_manager(sm)
+        resp = _client(server).get("/api/mode/current")
+        assert resp.json()["data"]["mode"] == "WINDOWS"

@@ -22,6 +22,10 @@ class DisplayConfig(BaseModel):
     ddc_primary_monitor: str = r"\\.\DISPLAY1\Monitor0"  # DDC/CI 主屏标识（ControlMyMonitor 用）
     ddc_secondary_monitor: str = r"\\.\DISPLAY2\Monitor0"  # DDC/CI 副屏标识（ControlMyMonitor 用）
     auto_repair: bool = False  # 启动时按上次模式自愈显示器状态（默认关闭，避免意外改动）
+    # Windows 显示器身份（Monitor ID / DeviceID），用于避免 DISPLAY 编号漂移。
+    # 为空时回退 primary_id/secondary_id 数字编号。
+    windows_primary_monitor_id: str = ""
+    windows_secondary_monitor_id: str = ""
 
 
 class WindowsConfig(BaseModel):

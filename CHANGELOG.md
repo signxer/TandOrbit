@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.0] - 显示器身份绑定与拓扑恢复
+
+- Windows 枚举增加 `monitor_id`/`device_id` 身份字段，支持按 Monitor ID 定位显示器，避免 DISPLAY 编号漂移。
+- 新增配置 `windows_primary_monitor_id` / `windows_secondary_monitor_id`，验证与应用优先按身份解析，找不到才回退数字编号。
+- 进入共享模式前保存 Windows 完整拓扑，退出时恢复（MultiMonitorTool /SaveConfig、/LoadConfig）。
+- 新增 `/api/mode/current` 端点与周期状态对账，发现两端模式不一致时告警。
+- 打包排除大量未使用的 Qt 模块，减小体积。
+
+
 ## [2.1.15] - 禁止自动 DDC 输入切换
 
 - **移除所有自动 DDC 输入源控制**：不再调用 `set_input_source`/`get_input_source`，

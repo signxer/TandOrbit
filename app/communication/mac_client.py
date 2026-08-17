@@ -238,3 +238,16 @@ class MacClient:
             # 远端不可达时不阻塞切换（离线场景由预检/WoL 流程处理）
             logger.debug("Mode claim failed (remote unreachable), proceeding")
             return True
+
+    async def get_current_mode(self) -> str | None:
+        """读取远端当前模式（状态对账用）"""
+        try:
+            client = await self._get_client()
+            resp = await client.get("/api/mode/current")
+            resp.raise_for_status()
+            data = AgentResponse(**resp.json())
+            if data.success and data.data:
+                return data.data.get("mode")
+            return None
+        except Exception:
+            return None

@@ -72,3 +72,9 @@ class TestV2ConfigFields:
             assert mgr2.import_from(dst)
             assert mgr2.config.windows.port == 8080
             assert mgr2.config.last_mode == "SHARE"
+
+
+    def test_windows_monitor_identity_defaults(self) -> None:
+        config = AppConfig()
+        assert config.display.windows_primary_monitor_id == ""
+        assert config.display.windows_secondary_monitor_id == ""

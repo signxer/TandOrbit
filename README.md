@@ -195,6 +195,8 @@ scripts\install_agent.bat      # 以管理员身份运行
 | `display.share_display_id` | `2` | 共享模式留给 Windows 的显示器 |
 | `display.auto_repair` | `false` | 启动时按上次模式自愈显示器状态 |
 | `display.auto_repair` | `false` | 启动时按上次模式自愈显示器状态；不会修改显示器输入源 |
+| `display.windows_primary_monitor_id` | `""` | Windows 主显示器 Monitor ID（可选，避免 DISPLAY 编号漂移，设置页可复制） |
+| `display.windows_secondary_monitor_id` | `""` | Windows 副显示器 Monitor ID（可选） |
 | `windows.host` / `port` | `192.168.1.100` / `5000` | Windows 端地址（自动发现可覆盖） |
 | `windows.mac_address` | `""` | Windows 网卡 MAC（WoL 唤醒用） |
 | `agent_token` | `""` | Agent 访问令牌（两端需一致；空 = 不鉴权）。设置后未授权设备无法控制本机 |

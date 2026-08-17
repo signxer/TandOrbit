@@ -513,6 +513,16 @@ def main() -> None:
         deskflow_timer.timeout.connect(_check_deskflow)
         deskflow_timer.start(5000)
 
+        # 周期状态对账：发现两端模式不一致（用于排查状态分裂）
+        def _check_reconcile():
+            async def _do_reconcile():
+                await controller.reconcile_remote_state()
+            worker.run_async(_do_reconcile())
+
+        reconcile_timer = QTimer()
+        reconcile_timer.timeout.connect(_check_reconcile)
+        reconcile_timer.start(30000)
+
     worker.init_done.connect(on_init_done)
 
     # 切换完成后刷新 UI 按钮状态（确保与实际模式一致）

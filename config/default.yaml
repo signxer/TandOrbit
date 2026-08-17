@@ -7,6 +7,8 @@ display:
   ddc_primary_monitor: '\\.\DISPLAY1\Monitor0'
   ddc_secondary_monitor: '\\.\DISPLAY2\Monitor0'
   auto_repair: false          # 启动时按上次模式自愈显示器状态（默认关闭）
+  windows_primary_monitor_id: ""   # Windows 主显示器 Monitor ID（可选，避免 DISPLAY 编号漂移）
+  windows_secondary_monitor_id: "" # Windows 副显示器 Monitor ID（可选）
 
 windows:
   host: "192.168.1.100"

@@ -515,6 +515,30 @@ class Controller:
         except Exception:
             return False
 
+    async def reconcile_remote_state(self) -> None:
+        """双端状态对账：读取对端当前模式，与本机不一致时告警
+
+        在切换完成之后或周期性调用，用于发现两端状态分裂（如重启后模式错乱、
+        切换中途失败导致一端状态未同步）。
+        """
+        import platform
+
+        if platform.system() == "Darwin":
+            remote_mode = await self._get_win_client().get_current_mode()
+        else:
+            remote_mode = await self._get_mac_client().get_current_mode()
+        if remote_mode is None:
+            logger.debug("状态对账：对端不可达，跳过")
+            return
+        local_mode = self._state.current_mode.name
+        if remote_mode != local_mode:
+            logger.warning(
+                f"状态对账发现两端不一致：本机={local_mode}，对端={remote_mode}。"
+                "可尝试在对端重新切换到目标模式，或重启对端以恢复一致。"
+            )
+        else:
+            logger.debug(f"状态对账一致：{local_mode}")
+
     async def wake_windows(self) -> bool:
         """手动唤醒 Windows"""
         cfg = self._config.config

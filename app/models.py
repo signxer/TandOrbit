@@ -20,6 +20,9 @@ class DisplayInfo(BaseModel):
     is_primary: bool = False
     is_enabled: bool = True
     input_source: InputSource = InputSource.UNKNOWN
+    # 身份字段：Windows 端使用 Monitor ID / DeviceID 定位显示器，避免 DISPLAY 编号漂移
+    monitor_id: str = ""  # 如 MONITOR\DEL41A6\{...}\0001
+    device_id: str = ""  # 设备实例路径（可能为空）
 
 
 class DisplayProfile(BaseModel):
