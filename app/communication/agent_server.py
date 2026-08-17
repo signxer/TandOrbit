@@ -128,8 +128,8 @@ class AgentServer:
         if self._deskflow_plugin:
             try:
                 deskflow_running = await self._deskflow_plugin.health_check()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"健康检查 Deskflow 失败: {e}")
 
         status = AgentHealthStatus(
             status="ok",
@@ -618,8 +618,8 @@ class AgentServer:
                 if non_primary:
                     return non_primary[0].id
                 return displays[-1].id
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"解析 Mac 副屏 tagID 失败: {e}")
         return None
 
     async def _disconnect_mac_secondary(self) -> None:

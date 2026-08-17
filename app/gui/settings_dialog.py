@@ -786,6 +786,9 @@ class SettingsDialog(QDialog):
         init_error = getattr(plugin, "_init_error", "") or ""
         if status_name == "ERROR":
             return f"显示器插件初始化失败：{init_error or '未知原因'}"
+        last_error = getattr(plugin, "last_error", "") or ""
+        if last_error:
+            return f"显示器工具返回错误：{last_error}"
         return "未能读取显示器列表（插件未返回数据，请确认工具已安装并运行，或查看日志）"
 
     def _refresh_audio(self) -> None:

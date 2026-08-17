@@ -32,6 +32,12 @@ class BetterDisplayPlugin(Plugin):
         super().__init__("betterdisplay", event_bus, config)
         self._cli_path = self.config.get("cli_path", self.DEFAULT_CLI_PATH)
         self._profiles: dict[str, DisplayProfile] = {}
+        self._last_error: str = ""
+
+    @property
+    def last_error(self) -> str:
+        """最近一次 CLI 操作错误，供设置界面诊断"""
+        return self._last_error
 
     async def initialize(self) -> bool:
         """初始化：检查 BetterDisplay CLI 是否可用"""
@@ -250,13 +256,17 @@ class BetterDisplayPlugin(Plugin):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15.0)
             if proc.returncode != 0:
-                logger.error(f"CLI error: {stderr.decode(errors='replace').strip()}")
+                self._last_error = stderr.decode(errors="replace").strip() or f"exit code {proc.returncode}"
+                logger.error(f"CLI error: {self._last_error}")
                 return None
+            self._last_error = ""
             return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
+            self._last_error = "CLI timeout"
             logger.error(f"CLI timeout: {cmd}")
             return None
         except Exception as e:
+            self._last_error = str(e)
             logger.error(f"CLI exception: {e}")
             return None
 
