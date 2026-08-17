@@ -10,6 +10,29 @@ permissions:
   contents: write
 
 jobs:
+  verify-version:
+    name: Verify version consistency
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Check tag matches code version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          CODE_VER=$(python -c "from app.updater import __version__; print(__version__)")
+          echo "tag=${TAG} code=${CODE_VER}"
+          if [ "${TAG}" != "v${CODE_VER}" ]; then
+            echo "::error::发布 tag ${TAG} 与代码版本 v${CODE_VER} 不一致，请先更新 app/updater.py 的 __version__ 与 pyproject.toml"
+            exit 1
+          fi
+
+
   build-mac:
     name: Build macOS
     runs-on: macos-latest
@@ -142,7 +165,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-mac, build-windows]
+    needs: [verify-version, build-mac, build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
