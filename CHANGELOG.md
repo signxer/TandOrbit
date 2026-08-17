@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.2.5] - 修复 Windows 显示器枚举为空
+
+- Windows 显示器枚举改用 .NET `System.Windows.Forms.Screen.AllScreens`，替代 P/Invoke `EnumDisplayDevices`——后者在部分系统上枚举不到 `DISPLAYn` 导致列表为空。
+- 枚举现在稳定返回活动显示器（id/主屏/分辨率），解决“未检测到列表”问题。
+
+
 ## [2.2.4] - 修复环境检查与枚举诊断
 
 - 修复环境检查不读配置路径：`_check_multimonitortool` 改为同时检查配置路径，`RequirementsDialog` 接受 `config_manager` 参数。

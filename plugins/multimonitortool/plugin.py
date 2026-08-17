@@ -52,51 +52,24 @@ public class DisplayConfig {
 
 # PowerShell script to enumerate displays via EnumDisplayDevices.
 # 输出：JSON 数组 [{id, name, is_primary, is_enabled, width, height}]
-# DISPLAY_DEVICE StateFlags: 0x1 = ATTACHED_TO_DESKTOP, 0x4 = PRIMARY_DEVICE
+# 使用 System.Windows.Forms.Screen.AllScreens（.NET 原生，稳定返回活动显示器），
+# 避免 P/Invoke EnumDisplayDevices 在某些系统枚举不到 DISPLAYn 的情况。
 _ENUM_DISPLAYS_SCRIPT = r"""\
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-public struct DISPLAY_DEVICE {
-    public int cb;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
-    public int StateFlags;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
-}
-public class TandOrbitDisplayEnum {
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    public static extern bool EnumDisplayDevices(
-        string lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
-}
-"@
-
+Add-Type -AssemblyName System.Windows.Forms
 $results = @()
-$i = 0
-while ($true) {
-    $dd = New-Object DISPLAY_DEVICE
-    $dd.cb = [System.Runtime.InteropServices.Marshal]::SizeOf([DISPLAY_DEVICE])
-    if (-not [TandOrbitDisplayEnum]::EnumDisplayDevices($null, [uint32]$i, [ref]$dd, 0)) {
-        break
-    }
-    if ($dd.DeviceName -match 'DISPLAY(\d+)') {
-        $id = [int]$Matches[1]
-        $attached = (($dd.StateFlags -band 1) -ne 0)
-        $primary  = (($dd.StateFlags -band 4) -ne 0)
+foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
+    if ($s.DeviceName -match 'DISPLAY(\d+)') {
         $results += [pscustomobject]@{
-            id         = $id
-            name       = $dd.DeviceName
-            is_primary = $primary
-            is_enabled = $attached
-            width      = 0
-            height     = 0
-            monitor_id = [string]$dd.DeviceID
-            device_id  = [string]$dd.DeviceKey
+            id         = [int]$Matches[1]
+            name       = $s.DeviceName
+            is_primary = $s.Primary
+            is_enabled = $true
+            width      = $s.Bounds.Width
+            height     = $s.Bounds.Height
+            monitor_id = ''
+            device_id  = ''
         }
     }
-    $i++
 }
 $results | ConvertTo-Json -Compress
 """
