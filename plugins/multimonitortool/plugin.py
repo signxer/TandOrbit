@@ -56,18 +56,50 @@ public class DisplayConfig {
 # 避免 P/Invoke EnumDisplayDevices 在某些系统枚举不到 DISPLAYn 的情况。
 _ENUM_DISPLAYS_SCRIPT = r"""\
 Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct DISPLAY_DEVICE_EDID {
+    public int cb;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+    public int StateFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+}
+public class EnumDisplay {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool EnumDisplayDevices(
+        string lpDevice, uint iDevNum, ref DISPLAY_DEVICE_EDID lpDisplayDevice, uint dwFlags);
+}
+"@
 $results = @()
 foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
     if ($s.DeviceName -match 'DISPLAY(\d+)') {
+        $id = [int]$Matches[1]
+        $name = $s.DeviceName
+        $monitor_id = ''
+        $device_id = ''
+        # 补充查询：用 EnumDisplayDevices 获得显示器型号名（DeviceString）和 DeviceID
+        $dd = New-Object DISPLAY_DEVICE_EDID
+        $dd.cb = [System.Runtime.InteropServices.Marshal]::SizeOf([DISPLAY_DEVICE_EDID])
+        if ([EnumDisplay]::EnumDisplayDevices($s.DeviceName, 0, [ref]$dd, 0)) {
+            if ($dd.DeviceString -match '\S+') {
+                $name = $dd.DeviceString
+            }
+            $monitor_id = [string]$dd.DeviceID
+            $device_id = [string]$dd.DeviceKey
+        }
         $results += [pscustomobject]@{
-            id         = [int]$Matches[1]
-            name       = $s.DeviceName
+            id         = $id
+            name       = $name
             is_primary = $s.Primary
             is_enabled = $true
             width      = $s.Bounds.Width
             height     = $s.Bounds.Height
-            monitor_id = ''
-            device_id  = ''
+            monitor_id = $monitor_id
+            device_id  = $device_id
         }
     }
 }

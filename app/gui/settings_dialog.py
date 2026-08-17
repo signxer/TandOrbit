@@ -716,7 +716,11 @@ class SettingsDialog(QDialog):
 
         if displays:
             for d in displays:
-                label = f"{d.id} - {d.name}"
+                # 显示型号名（如 "DELL U2720Q"），后面跟 DISPLAY 编号
+                display_name = d.name.rstrip(" \t\r\n")
+                if "\\" in display_name:
+                    display_name = display_name.split("\\")[-1]
+                label = f"{display_name}（DISPLAY{d.id}）"
                 self._primary_id.addItem(label, str(d.id))
                 self._secondary_id.addItem(label, str(d.id))
                 self._share_display.addItem(label, str(d.id))
