@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.1.13] - 整体体检修复
+
+- 修复远端同步持久化 `last_mode` 时未先加载配置，可能把用户自定义配置覆盖为默认值的问题。
+- AgentServer 注入共享 ConfigManager，减少重复读取配置文件。
+- 配置导入提示需要重启的运行中组件。
+- 补充远端配置保护回归测试。
+
+
 ## [2.1.5] - 修复 CI（根治）
 
 - **asyncio_mode 改为 strict**：pytest-asyncio 1.4.0 在 Windows 上存在收尾 bug——

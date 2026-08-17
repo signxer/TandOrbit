@@ -87,3 +87,27 @@ class TestModeClaim:
         resp = client.post("/api/mode/claim", json={"mode": "WINDOWS"})
         assert resp.status_code == 409
         assert resp.json()["error"] == "busy"
+
+
+class TestRemoteModePersistence:
+    def test_persist_last_mode_preserves_custom_config(self, tmp_path) -> None:
+        from app.config import ConfigManager
+
+        cm = ConfigManager(tmp_path / "config.yaml")
+        cm.load()
+        cm.update({
+            "windows": {"host": "10.20.30.40", "port": 5010},
+            "display": {"primary_id": 3, "secondary_id": 4},
+            "agent_token": "keep-me",
+        })
+        server = AgentServer(config_manager=cm)
+        server._persist_last_mode(Mode.WINDOWS)
+
+        reloaded = ConfigManager(tmp_path / "config.yaml")
+        cfg = reloaded.load()
+        assert cfg.last_mode == "WINDOWS"
+        assert cfg.windows.host == "10.20.30.40"
+        assert cfg.windows.port == 5010
+        assert cfg.display.primary_id == 3
+        assert cfg.display.secondary_id == 4
+        assert cfg.agent_token == "keep-me"

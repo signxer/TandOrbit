@@ -114,7 +114,7 @@ def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
     )
 
 
-def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager, plugin_registry: PluginRegistry) -> None:
+def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager, plugin_registry: PluginRegistry, config_manager: ConfigManager | None = None) -> None:
     """启动 Agent Server（Mac: 权威模式状态源; Windows: 接收指令）"""
     import threading
 
@@ -124,7 +124,7 @@ def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager
 
     is_mac = sys.platform == "darwin"
     port = config.mac.port if is_mac else config.windows.port
-    server = AgentServer(host="0.0.0.0", port=port)
+    server = AgentServer(host="0.0.0.0", port=port, config_manager=config_manager or ConfigManager())
     server.set_state_manager(state_manager)
     server.set_auth_token(config.agent_token)
 
@@ -196,7 +196,7 @@ def main() -> None:
     )
 
     # 启动 Agent Server（注入插件）
-    _start_agent_server(config, event_bus, state_manager, plugin_registry)
+    _start_agent_server(config, event_bus, state_manager, plugin_registry, config_manager)
 
     # 创建 Qt 应用
     app = QApplication(sys.argv)

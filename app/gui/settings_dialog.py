@@ -348,7 +348,11 @@ class SettingsDialog(QDialog):
             return
         if self._config_manager.import_from(path):
             self._load_values()  # 刷新界面
-            QMessageBox.information(self, "导入配置", "配置已导入并重新加载。")
+            QMessageBox.information(
+                self,
+                "导入配置",
+                "配置已导入并重新加载。\n\n部分运行中的组件（Agent 端口、Deskflow、显示器工具）需要重启 TandOrbit 后完全生效。",
+            )
         else:
             QMessageBox.warning(self, "导入配置", "导入失败，请检查文件格式。")
 

@@ -46,9 +46,10 @@ class AgentServer:
     常驻运行在 Windows 端，提供 HTTP API 供 Mac 端调用。
     """
 
-    def __init__(self, host: str = "0.0.0.0", port: int = 5000) -> None:
+    def __init__(self, host: str = "0.0.0.0", port: int = 5000, config_manager: Any = None) -> None:
         self._host = host
         self._port = port
+        self._config_manager = config_manager
         self._start_time = time.monotonic()
         self._app: Starlette | None = None
         self._display_plugin: Any = None
@@ -450,13 +451,14 @@ class AgentServer:
                 status_code=500,
             )
 
-    @staticmethod
-    def _persist_last_mode(mode: Mode) -> None:
+    def _persist_last_mode(self, mode: Mode) -> None:
         """持久化 last_mode（远端同步触发时），与本地切换成功的保存保持一致"""
         try:
-            from app.config import ConfigManager
-
-            cm = ConfigManager()
+            cm = self._config_manager
+            if cm is None:
+                from app.config import ConfigManager
+                cm = ConfigManager()
+                cm.load()
             cm.config.last_mode = mode.name
             cm.save()
         except Exception as e:
@@ -515,17 +517,27 @@ class AgentServer:
     def _primary_display_id(self) -> int:
         """主显示器 DISPLAY 编号（来自配置，默认 1）"""
         try:
-            from app.config import ConfigManager
-            return int(ConfigManager().load().display.primary_id)
-        except Exception:
+            cm = self._config_manager
+            if cm is None:
+                from app.config import ConfigManager
+                cm = ConfigManager()
+                cm.load()
+            return int(cm.config.display.primary_id)
+        except Exception as e:
+            logger.warning(f"读取主显示器配置失败，使用默认 DISPLAY1: {e}")
             return 1
 
     def _secondary_display_id(self) -> int:
         """副显示器 DISPLAY 编号（来自配置，默认 2）"""
         try:
-            from app.config import ConfigManager
-            return int(ConfigManager().load().display.secondary_id)
-        except Exception:
+            cm = self._config_manager
+            if cm is None:
+                from app.config import ConfigManager
+                cm = ConfigManager()
+                cm.load()
+            return int(cm.config.display.secondary_id)
+        except Exception as e:
+            logger.warning(f"读取副显示器配置失败，使用默认 DISPLAY2: {e}")
             return 2
 
     async def _enable_all_displays(self) -> None:
@@ -637,10 +649,14 @@ class AgentServer:
         if display_id is None:
             # 枚举中只有主屏时无法解析副屏 tagID，尝试用配置值（用户可能已配置真实 tagID）
             try:
-                from app.config import ConfigManager
-                display_id = int(ConfigManager().load().display.secondary_id)
-            except Exception:
-                logger.warning("Cannot resolve Mac secondary display, skipping reconnect")
+                cm = self._config_manager
+                if cm is None:
+                    from app.config import ConfigManager
+                    cm = ConfigManager()
+                    cm.load()
+                display_id = int(cm.config.display.secondary_id)
+            except Exception as e:
+                logger.warning(f"Cannot resolve Mac secondary display, skipping reconnect: {e}")
                 return
         try:
             ok = await plugin.enable_display(display_id)
