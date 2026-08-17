@@ -1,6 +1,6 @@
 """DDC/CI 插件实现
 
-通过 DDC/CI 协议控制显示器（亮度、输入源等）。
+通过 DDC/CI 协议提供显示器辅助能力（亮度、对比度、电源等）；不控制输入源。
 """
 
 from __future__ import annotations
@@ -13,13 +13,12 @@ from typing import Any
 
 from loguru import logger
 
-from app.enums import InputSource, PluginStatus
+from app.enums import PluginStatus
 from app.events import EventBus
 from app.plugin_base import Plugin
 
 
 # DDC/CI VCP codes
-VCP_INPUT_SOURCE = 0x60
 VCP_BRIGHTNESS = 0x10
 VCP_CONTRAST = 0x12
 VCP_POWER_MODE = 0xD6
@@ -30,22 +29,12 @@ POWER_STANDBY = 0x02
 POWER_SUSPEND = 0x03
 POWER_OFF = 0x04
 
-# 输入源映射
-INPUT_SOURCE_MAP: dict[InputSource, int] = {
-    InputSource.VGA: 0x01,
-    InputSource.HDMI1: 0x11,
-    InputSource.HDMI2: 0x12,
-    InputSource.DISPLAYPORT1: 0x0F,
-    InputSource.DISPLAYPORT2: 0x10,
-    InputSource.TYPE_C: 0x10,
-}
-
 
 class DDCPlugin(Plugin):
     """DDC/CI 显示器控制插件
 
-    通过 DDC/CI 协议控制显示器输入源、亮度等。
-    macOS 使用 m1ddc，Windows 使用 ControlMyMonitor。
+    通过 DDC/CI 协议控制显示器亮度、对比度和电源等辅助能力；
+    **不会修改显示器输入源**，以保持自动输入识别功能。
     """
 
     def __init__(self, event_bus: EventBus, config: dict[str, Any] | None = None) -> None:
@@ -106,26 +95,6 @@ class DDCPlugin(Plugin):
         self._set_status(PluginStatus.DISABLED)
 
     # --- DDC 控制接口 ---
-
-    async def get_input_source(self, display_id: int = 0) -> InputSource | None:
-        """获取显示器当前输入源"""
-        value = await self._read_vcp(display_id, VCP_INPUT_SOURCE)
-        if value is None:
-            return None
-        for source, code in INPUT_SOURCE_MAP.items():
-            if code == value:
-                return source
-        return InputSource.UNKNOWN
-
-    async def set_input_source(
-        self, display_id: int, source: InputSource
-    ) -> bool:
-        """设置显示器输入源"""
-        code = INPUT_SOURCE_MAP.get(source)
-        if code is None:
-            logger.error(f"Unknown input source: {source}")
-            return False
-        return await self._write_vcp(display_id, VCP_INPUT_SOURCE, code)
 
     async def get_brightness(self, display_id: int = 0) -> int | None:
         """获取显示器亮度（0-100）"""
@@ -205,7 +174,6 @@ class DDCPlugin(Plugin):
 
     # m1ddc 命令映射
     M1DDC_VCP_MAP: dict[int, str] = {
-        VCP_INPUT_SOURCE: "input",
         VCP_BRIGHTNESS: "luminance",
         VCP_CONTRAST: "contrast",
     }

@@ -22,8 +22,6 @@ class DisplayConfig(BaseModel):
     ddc_primary_monitor: str = r"\\.\DISPLAY1\Monitor0"  # DDC/CI 主屏标识（ControlMyMonitor 用）
     ddc_secondary_monitor: str = r"\\.\DISPLAY2\Monitor0"  # DDC/CI 副屏标识（ControlMyMonitor 用）
     auto_repair: bool = False  # 启动时按上次模式自愈显示器状态（默认关闭，避免意外改动）
-    ddc_switch_enabled: bool = False  # DDC/CI 主动切换显示器输入源（默认关闭）
-    input_map: dict[str, dict[str, str]] = {}  # 显示器 DDC 编号 → {mac: 输入源, windows: 输入源}
 
 
 class WindowsConfig(BaseModel):

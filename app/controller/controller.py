@@ -32,8 +32,6 @@ from app.scheduler.actions import (
     RestartDeskflowAction,
     SetAudioMacAction,
     StopDeskflowAction,
-    SwitchDisplayInputsAction,
-    VerifyDisplayInputsAction,
     WakeWindowsAction,
 )
 from app.scheduler.scheduler import Scheduler
@@ -135,12 +133,6 @@ class Controller:
         deskflow = self._get_plugin("deskflow")
         display = self._get_plugin("betterdisplay") if is_mac else self._get_plugin("multimonitortool")
         audio = self._get_plugin("audio")
-        # DDC/CI 输入源切换（配置驱动，默认关闭）
-        ddc = self._get_plugin("ddc")
-        input_map: dict[str, dict[str, str]] = (
-            cfg.display.input_map if cfg.display.ddc_switch_enabled else {}
-        )
-
         # 显示器拓扑的目标状态（供验证动作使用）
         primary_id = cfg.display.primary_id
         secondary_id = cfg.display.secondary_id
@@ -155,10 +147,6 @@ class Controller:
                         mac_display_plugin=display,
                         secondary_display_id=secondary_id,
                     ))
-                # 可选：DDC/CI 主动把显示器输入源切到 Mac（并读回验证）
-                if input_map:
-                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "mac"))
-                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "mac"))
                 # Mac 端：唤醒全部显示器 + 停止 Deskflow + 切音频
                 pipeline.add_action(
                     ConfigureDisplaysForMac(mac_display_plugin=display)
@@ -170,10 +158,6 @@ class Controller:
                         device=cfg.audio.mac_output,
                     ))
             else:
-                # 可选：DDC/CI 主动把显示器输入源切到 Mac（并读回验证）
-                if input_map:
-                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "mac"))
-                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "mac"))
                 # Windows 端：停 Deskflow → 关屏（电源关，信号消失后显示器切到 Mac）
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
                 pipeline.add_action(LocalDisplayOffAction())
@@ -195,19 +179,11 @@ class Controller:
                     agent_port=cfg.windows.port,
                     timeout=60.0,
                 ))
-                # 可选：DDC/CI 主动把显示器输入源切到 Windows（并读回验证）
-                if input_map:
-                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "windows"))
-                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "windows"))
                 pipeline.add_action(
                     ConfigureDisplaysForWindows(mac_display_plugin=display)
                 )
                 pipeline.add_action(StopDeskflowAction(deskflow_plugin=deskflow))
             else:
-                # 可选：DDC/CI 主动把显示器输入源切到 Windows（并读回验证）
-                if input_map:
-                    pipeline.add_action(SwitchDisplayInputsAction(ddc, input_map, "windows"))
-                    pipeline.add_action(VerifyDisplayInputsAction(ddc, input_map, "windows"))
                 # Windows 端：启用所有显示器 → 扩展拓扑 → 验证
                 pipeline.add_action(LocalDisplayOnAction(display_plugin=display))
                 pipeline.add_action(SetDisplayModeAction("extend", display_plugin=display))

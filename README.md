@@ -49,7 +49,7 @@ TandOrbit 的做法：**全局快捷键一键切换**、**每台机器自动控�
 | ⌨️ **键鼠共享** | 基于 Deskflow，鼠标键盘在两台电脑间无缝穿越（共享模式） |
 | 🔌 **自动发现** | UDP 广播自动发现对端，无需手动配置 IP 和端口；对端地址变化自动更新 |
 | 🔋 **电源管理** | WoL 远程唤醒（多网卡定向广播）+ 一键关闭显示器，省电省心 |
-| 🎛️ **DDC/CI 输入切换**（可选） | 切换时主动把显示器输入源切到对应主机，并**读回验证**输入源已生效 |
+| 🛡️ **自动输入识别保护** | 不主动改写显示器输入源，只控制两台电脑的显示输出，保持显示器自动识别始终可用 |
 | 🔐 **Agent 鉴权**（可选） | 配置访问令牌后，未授权设备无法控制本机 |
 | 🧩 **插件架构** | 所有能力插件化、按平台加载，易扩展 |
 | 🛠️ **可观测性** | 应用内日志查看器、配置导入/导出、启动自检与可选自愈 |
@@ -65,7 +65,8 @@ TandOrbit 的做法：**全局快捷键一键切换**、**每台机器自动控�
 | **共享** | 主屏 ✅ | 副屏 ✅ | 共享 ⌨️ | 同时使用两台机器 |
 
 > 原理：每台机器只控制**自己**的显示器（Mac 用 BetterDisplay、Windows 用 MultiMonitorTool / Windows API）。
-> 切换时一台机器的信号消失、另一台点亮，显示器自动跟随活跃信号源；可选开启 DDC/CI 主动切换输入源，更可靠。
+> 切换时一台机器的信号消失、另一台点亮，显示器自动跟随活跃信号源。
+> TandOrbit **不会主动修改显示器输入源**，避免关闭显示器自身的自动输入识别。
 
 ---
 
@@ -101,8 +102,7 @@ scripts\install_agent.bat      # 以管理员身份运行
 | [BetterDisplay](https://github.com/waydabber/BetterDisplay) | macOS | 显示器启用/禁用控制（断连副屏需要 Pro 授权） | 必需 |
 | [MultiMonitorTool](https://www.nirsoft.net/utils/multi_monitor_tool.html) | Windows | 显示器启用/禁用管理 | 必需 |
 | [Deskflow](https://github.com/deskflow/deskflow) | 双端 | 键鼠共享（共享模式） | 必需 |
-| [m1ddc](https://github.com/waydabber/m1ddc) | macOS | DDC/CI 输入源切换（可选功能） | 可选 |
-| [ControlMyMonitor](https://www.nirsoft.net/utils/control_my_monitor.html) | Windows | DDC/CI 输入源切换（可选功能） | 可选 |
+| [ControlMyMonitor](https://www.nirsoft.net/utils/control_my_monitor.html) | Windows | DDC/CI 亮度/电源等辅助控制（不用于自动输入切换） | 可选 |
 
 > 两台机器都需要安装 Deskflow 并保持同一局域网；Deskflow 服务端默认运行在 Windows（可在配置中调整）。
 
@@ -111,7 +111,7 @@ scripts\install_agent.bat      # 以管理员身份运行
 1. 两台机器各启动 TandOrbit，确认托盘图标出现、状态栏绿灯（自动发现对端）；
 2. 打开 **设置 → 显示器**，确认主/副显示器编号正确（可点「刷新」从本机枚举）；
 3. 在 **设置 → 快捷键** 录制（或确认默认）三组切换快捷键；
-4. 若启用 DDC 输入切换：**设置 → 显示器** 勾选「启用」，并按实际显示器输入口填写映射。
+4. TandOrbit **不会主动修改显示器输入源**，以保持显示器自己的自动识别功能；如需手动诊断，可单独使用显示器厂商工具。
 
 ### 4. macOS 权限
 
@@ -194,8 +194,7 @@ scripts\install_agent.bat      # 以管理员身份运行
 | `display.primary_id` / `secondary_id` | `1` / `2` | 主/副显示器编号（Windows DISPLAY 编号） |
 | `display.share_display_id` | `2` | 共享模式留给 Windows 的显示器 |
 | `display.auto_repair` | `false` | 启动时按上次模式自愈显示器状态 |
-| `display.ddc_switch_enabled` | `false` | 启用 DDC/CI 主动切换输入源 |
-| `display.input_map` | `{}` | 输入映射：`{"1": {"mac": "hdmi1", "windows": "dp1"}}`（1/2 为 DDC 工具编号） |
+| `display.auto_repair` | `false` | 启动时按上次模式自愈显示器状态；不会修改显示器输入源 |
 | `windows.host` / `port` | `192.168.1.100` / `5000` | Windows 端地址（自动发现可覆盖） |
 | `windows.mac_address` | `""` | Windows 网卡 MAC（WoL 唤醒用） |
 | `agent_token` | `""` | Agent 访问令牌（两端需一致；空 = 不鉴权）。设置后未授权设备无法控制本机 |
@@ -215,7 +214,7 @@ scripts\install_agent.bat      # 以管理员身份运行
 | 全局快捷键无效 | macOS：检查「辅助功能」授权；Windows：检查快捷键是否被其他软件占用（设置里会提示注册失败） |
 | 对端一直显示离线 | 确认同一局域网；检查防火墙是否放行 `5000/5001/5002` 端口（Windows 首次运行需允许） |
 | 打开后提示隔离/无法运行（macOS） | 执行 `sudo xattr -rd com.apple.quarantine /Applications/TandOrbit.app` |
-| DDC 输入切换不生效 | 确认 m1ddc / ControlMyMonitor 已安装；核对 `input_map` 中的 DDC 编号与输入源值 |
+| 显示器没有自动切换 | 保持显示器的自动输入检测开启；TandOrbit 不会主动写入 DDC 输入源。确认两台电脑的显示输出按模式正确启用/关闭 |
 | 共享模式副屏不亮 | 确认 BetterDisplay 已授权「断连显示器」能力（Pro）；确认 Windows 端主屏被正确禁用（切换记录里看验证结果） |
 
 ---
@@ -268,7 +267,7 @@ TandOrbit/
 │   ├── deskflow/           # 键鼠共享
 │   ├── wol/                # Wake on LAN
 │   ├── audio/              # 音频设备切换
-│   └── ddc/                # DDC/CI 显示器控制（输入源切换）
+│   └── ddc/                # DDC/CI 辅助控制（亮度/电源，不切输入源）
 ├── packaging/              # PyInstaller 打包配置
 ├── config/                 # 默认配置模板
 ├── scripts/                # 工具脚本（Agent 服务安装、打包辅助）

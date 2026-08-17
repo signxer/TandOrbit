@@ -47,8 +47,6 @@ class TestV2ConfigFields:
     def test_new_display_fields_defaults(self) -> None:
         config = AppConfig()
         assert config.display.auto_repair is False
-        assert config.display.ddc_switch_enabled is False
-        assert config.display.input_map == {}
         assert config.display.ddc_primary_monitor.startswith(r"\\.\DISPLAY1")
 
     def test_last_mode_default_none(self) -> None:

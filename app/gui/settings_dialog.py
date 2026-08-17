@@ -493,43 +493,6 @@ class SettingsDialog(QDialog):
         form.addRow("", self._display_status)
         layout.addRow(group)
 
-        # --- DDC/CI 输入源切换（可选，默认关闭） ---
-        ddc_group = QGroupBox("DDC/CI 输入源切换（可选）")
-        ddc_form = QFormLayout(ddc_group)
-        self._ddc_enabled = QCheckBox("启用：切换时主动把显示器输入源切到对应主机")
-        ddc_form.addRow(self._ddc_enabled)
-
-        _INPUT_SOURCES = [
-            ("（不切换）", ""),
-            ("HDMI 1", "hdmi1"),
-            ("HDMI 2", "hdmi2"),
-            ("DisplayPort 1", "dp1"),
-            ("DisplayPort 2", "dp2"),
-            ("USB-C", "usbc"),
-            ("VGA", "vga"),
-        ]
-        self._ddc_inputs: list[tuple[QComboBox, QComboBox]] = []
-        for label in ("DDC 显示器 1", "DDC 显示器 2"):
-            mac_combo = QComboBox()
-            win_combo = QComboBox()
-            for text, value in _INPUT_SOURCES:
-                mac_combo.addItem(text, value)
-                win_combo.addItem(text, value)
-            row = QHBoxLayout()
-            row.addWidget(mac_combo)
-            row.addWidget(win_combo)
-            self._ddc_inputs.append((mac_combo, win_combo))
-            ddc_form.addRow(f"{label}（Mac / Windows 输入）:", row)
-
-        ddc_hint = QLabel(
-            "需要 m1ddc（Mac）或 ControlMyMonitor（Windows）。"
-            "DDC 显示器编号指 DDC 工具枚举的序号，通常 1=主屏 2=副屏，请按实际调整。"
-        )
-        ddc_hint.setStyleSheet("color: #888; font-size: 11px;")
-        ddc_hint.setWordWrap(True)
-        ddc_form.addRow("", ddc_hint)
-        layout.addRow(ddc_group)
-
         return widget
 
     def _create_deskflow_tab(self) -> QWidget:
@@ -675,13 +638,6 @@ class SettingsDialog(QDialog):
 
         # 显示器 — 异步从插件获取列表（选择恢复在 _populate_displays 中完成）
         self._refresh_displays()
-
-        # DDC/CI 输入源切换
-        self._ddc_enabled.setChecked(cfg.display.ddc_switch_enabled)
-        for i, (mac_combo, win_combo) in enumerate(self._ddc_inputs, start=1):
-            entry = cfg.display.input_map.get(str(i), {})
-            self._set_combo_data(mac_combo, entry.get("mac", ""))
-            self._set_combo_data(win_combo, entry.get("windows", ""))
 
         # 音频 — 异步从插件获取列表（选择恢复在 _populate_audio 中完成）
         self._refresh_audio()
@@ -863,8 +819,6 @@ class SettingsDialog(QDialog):
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,
                 "share_display_id": share_display_id,
-                "ddc_switch_enabled": self._ddc_enabled.isChecked(),
-                "input_map": self._collect_input_map(),
             },
             "deskflow": {
                 "server_host": self._df_host.text(),
@@ -890,18 +844,3 @@ class SettingsDialog(QDialog):
             }
         self._config_manager.update(updates)
         self.accept()
-
-    def _collect_input_map(self) -> dict[str, dict[str, str]]:
-        """收集 DDC 输入映射：{"1": {"mac": "hdmi1", "windows": "dp1"}, ...}"""
-        result: dict[str, dict[str, str]] = {}
-        for i, (mac_combo, win_combo) in enumerate(self._ddc_inputs, start=1):
-            mac_val = mac_combo.currentData() or ""
-            win_val = win_combo.currentData() or ""
-            entry: dict[str, str] = {}
-            if mac_val:
-                entry["mac"] = mac_val
-            if win_val:
-                entry["windows"] = win_val
-            if entry:
-                result[str(i)] = entry
-        return result
