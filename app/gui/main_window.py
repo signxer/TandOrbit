@@ -162,13 +162,15 @@ class ModeButton(QPushButton):
         self.mode = mode
         self._text = text
         self.setCheckable(True)
-        self.setFixedSize(88, 80)
+        # 宽度固定，高度自适应内容（不同字体/DPI 下都不会裁剪图标或文字）
+        self.setFixedWidth(88)
+        self.setMinimumHeight(76)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(self._STYLE)
 
         # 内部布局：图标居上，文字居下
         inner = QVBoxLayout(self)
-        inner.setContentsMargins(0, 6, 0, 4)
+        inner.setContentsMargins(0, 4, 0, 2)
         inner.setSpacing(4)
         inner.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -245,7 +247,11 @@ class MainWindow(QMainWindow):
             "switch_share": "Ctrl+Option+3" if platform.system() == "Darwin" else "Ctrl+Alt+3",
         }
         self.setWindowTitle("TandOrbit")
-        self.setFixedSize(320, 320)
+        # Windows 字体（Segoe UI）行高更高，窗口略加高避免内容重叠；
+        # 其余平台保持原尺寸。改为 minimum 而非 fixed，允许系统缩放时自动扩展。
+        win_height = 344 if platform.system() == "Windows" else 320
+        self.setMinimumSize(320, win_height)
+        self.resize(320, win_height)
         self.setStyleSheet(f"background-color: {_COLORS['window_bg']};")
         self._setup_ui()
 
@@ -323,7 +329,10 @@ class MainWindow(QMainWindow):
             lbl = QLabel(self._hotkeys.get(key, ""))
             lbl.setFont(QFont(_FONT, 10))
             lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(f"color: {_COLORS['text_secondary']};")
+            # 背景必须透明，避免在浅色/深色主题下出现色块与按钮视觉重叠
+            lbl.setStyleSheet(
+                f"color: {_COLORS['text_secondary']}; background: transparent;"
+            )
             self._hk_labels.append(lbl)
             hk_row.addWidget(lbl)
         layout.addLayout(hk_row)

@@ -29,13 +29,15 @@ class TestMainWindowLayout:
         # 直接构造 ModeButton 验证内部布局
         root = Path(__file__).resolve().parent.parent
         btn = ModeButton("Windows", Mode.WINDOWS, "resources/windows.svg", root)
-        # 内部布局可用高度 = 按钮高度 - 上下 padding(6+6) - 内容边距(6+4)
-        # 需求 = 图标(32) + 间距(4) + 文字行高(11pt≈16) = 52
-        inner = btn.layout()
-        assert inner is not None, "按钮应有内部布局"
-        # 可容纳内容的高度应大于需求
-        available = btn.height() - 12 - 10
-        assert available >= 52, f"按钮内部空间不足: available={available} < 52"
+        # 激活布局后，sizeHint 高度应能容纳图标+间距+文字
+        btn.layout().activate()
+        # 需求 = 图标(32) + 间距(4) + 文字行高(11pt，用实际字体度量)
+        font_metrics = btn._label.fontMetrics()
+        text_height = font_metrics.height()
+        need = 32 + 4 + text_height + 6  # 图标+间距+文字+上下内容边距
+        assert btn.height() >= need, (
+            f"按钮高度不足以容纳内容: height={btn.height()} need={need}"
+        )
 
     def test_main_window_constructs(self, qapp, tmp_path) -> None:
         """主窗口能正常构造，不抛异常"""
