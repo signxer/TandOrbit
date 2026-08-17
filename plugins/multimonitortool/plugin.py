@@ -75,21 +75,42 @@ public class EnumDisplay {
 }
 "@
 $results = @()
+# 尝试读取 WmiMonitorID（EDID 中的产品名），非管理员可能失败，失败时忽略
+$wmiMonitors = @()
+try {
+    $wmiMonitors = Get-WmiObject -Namespace root/wmi -ClassName WmiMonitorID -ErrorAction Stop
+} catch {}
+# 建立 DISPLAYn -> 产品名 的映射
+$wmiNameMap = @{}
+foreach ($m in $wmiMonitors) {
+    $inst = [string]($m.InstanceName)
+    if ($inst -match 'DISPLAY(\d+)') {
+        $did = [int]$Matches[1]
+        $productName = ($m.ProductNameID | ForEach-Object { [char]$_ }) -join ''
+        if ($productName -match '\S') {
+            $wmiNameMap[$did] = $productName
+        }
+    }
+}
 foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
     if ($s.DeviceName -match 'DISPLAY(\d+)') {
         $id = [int]$Matches[1]
         $name = $s.DeviceName
         $monitor_id = ''
         $device_id = ''
-        # 补充查询：用 EnumDisplayDevices 获得显示器型号名（DeviceString）和 DeviceID
-        $dd = New-Object DISPLAY_DEVICE_EDID
-        $dd.cb = [System.Runtime.InteropServices.Marshal]::SizeOf([DISPLAY_DEVICE_EDID])
-        if ([EnumDisplay]::EnumDisplayDevices($s.DeviceName, 0, [ref]$dd, 0)) {
-            if ($dd.DeviceString -match '\S+') {
-                $name = $dd.DeviceString
+        # 优先用 WmiMonitorID 中的产品名，回退到 EnumDisplayDevices 的 DeviceString
+        if ($wmiNameMap.ContainsKey($id)) {
+            $name = $wmiNameMap[$id]
+        } else {
+            $dd = New-Object DISPLAY_DEVICE_EDID
+            $dd.cb = [System.Runtime.InteropServices.Marshal]::SizeOf([DISPLAY_DEVICE_EDID])
+            if ([EnumDisplay]::EnumDisplayDevices($s.DeviceName, 0, [ref]$dd, 0)) {
+                if ($dd.DeviceString -match '\S+') {
+                    $name = $dd.DeviceString
+                }
+                $monitor_id = [string]$dd.DeviceID
+                $device_id = [string]$dd.DeviceKey
             }
-            $monitor_id = [string]$dd.DeviceID
-            $device_id = [string]$dd.DeviceKey
         }
         $results += [pscustomobject]@{
             id         = $id
