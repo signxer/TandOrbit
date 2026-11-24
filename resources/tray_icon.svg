@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="14 24 100 82" role="img">
+  <title>TandOrbit menu bar icon</title>
+  <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="6.75">
+    <path d="M50 66H27a5 5 0 0 1-5-5V44a5 5 0 0 1 5-5h26a5 5 0 0 1 5 5v6M40 67v8m-9 0h18"/>
+    <path d="M78 54h23a5 5 0 0 1 5 5v17a5 5 0 0 1-5 5H75a5 5 0 0 1-5-5v-6m18 12v8m-9 0h18"/>
+    <path d="M46 60c7 6 13 5 18 0s11-6 18 0"/>
+  </g>
+</svg>

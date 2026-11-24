@@ -30,8 +30,9 @@ class LogViewer(QWidget):
     # 跨线程安全：loguru sink 在任意线程 emit，Qt 自动排队到 GUI 线程
     log_message = Signal(str, str)  # (message, level)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, log_dir=None) -> None:
         super().__init__(parent)
+        self._log_dir = log_dir
         self.setWindowTitle("TandOrbit 日志")
         self.resize(640, 420)
         self._setup_ui()
@@ -95,7 +96,7 @@ class LogViewer(QWidget):
         from PySide6.QtCore import QUrl
         from PySide6.QtGui import QDesktopServices
 
-        log_dir = Path.home() / ".tandorbit" / "logs"
+        log_dir = self._log_dir or Path.home() / ".tandorbit" / "logs"
         try:
             files = sorted(
                 log_dir.glob("tandorbit_*.log"),

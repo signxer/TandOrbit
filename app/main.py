@@ -1,645 +1,356 @@
-"""TandOrbit Mac 端主入口
-
-启动 Mac 端 GUI 和控制系统。
-"""
-
+"""Start the TandOrbit desktop UI and its single service event loop."""
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
 from loguru import logger
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIcon
+from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
-_MSGBOX_STYLE = """
-    QPushButton {
-        border: 1px solid #D0D0D0;
-        border-radius: 6px;
-        padding: 5px 18px;
-        font-size: 13px;
-        min-width: 60px;
-    }
-    QPushButton:hover { background: #F5F5F5; }
-    QPushButton:pressed { background: #E8F0FE; }
-"""
-
-
-def _msgbox(icon: QMessageBox.Icon, title: str, text: str, parent=None) -> int:
-    """统一样式的消息框"""
-    msg = QMessageBox(parent)
-    msg.setIcon(icon)
-    msg.setWindowTitle(title)
-    msg.setText(text)
-    msg.setStyleSheet(_MSGBOX_STYLE)
-    msg.exec()
-    return msg.result()
-
+from app.communication.discovery import DiscoveryService
+from app.communication.pairing import Pairing
 from app.config import ConfigManager
 from app.controller.controller import Controller
+from app.display_power import DisplayPower
 from app.enums import Mode
 from app.events import EventBus, ModeChangedEvent
-from app.gui.main_window import MainWindow
+from app.gui.log_viewer import LogViewer
+from app.gui.main_window import MainWindow, _resource_path
 from app.gui.settings_dialog import SettingsDialog
+from app.gui.switch_history_dialog import SwitchHistoryDialog
 from app.gui.tray import TrayIcon
+from app.hotkeys import GlobalHotkeyManager
+from app.native_input import create_native_input
 from app.plugin_base import PluginRegistry
+from app.runtime import Runtime
 from app.scheduler.scheduler import Scheduler
+from app.sharing import ShareSession
 from app.state.state_machine import StateManager
-
-# 插件导入
-from plugins.betterdisplay.plugin import BetterDisplayPlugin
-from plugins.ddc.plugin import DDCPlugin
-from plugins.deskflow.plugin import DeskflowPlugin
+from app.updater import __version__, check_update
+from plugins.audio.plugin import AudioPlugin
 from plugins.wol.plugin import WoLPlugin
 
 
-class AsyncWorker(QThread):
-    """异步工作线程"""
+class Worker(QThread):
+    ready = Signal()
 
-    status_updated = Signal(bool, bool, bool)  # mac, win, deskflow
-    mode_changed = Signal(str)
-    init_report = Signal(list)  # [(name, success, reason)]
-    init_done = Signal()
-
-    def __init__(self, controller: Controller) -> None:
+    def __init__(self, initialize, shutdown) -> None:
         super().__init__()
-        self._controller = controller
-        self._loop: asyncio.AbstractEventLoop | None = None
+        self.loop = None
+        self._start = initialize
+        self._close = shutdown
 
     def run(self) -> None:
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        try:
-            self._loop.run_until_complete(self._controller.initialize())
-            self.init_report.emit(self._controller.init_results)
-            self.init_done.emit()
-            self._loop.run_forever()
-        except Exception as e:
-            logger.error(f"Initialization error: {e}")
+        async def services():
+            self.loop = asyncio.get_running_loop()
+            self.finished_work = asyncio.Event()
+            try:
+                await self._start()
+            except Exception:
+                logger.exception("初始化失败")
+            self.ready.emit()
+            await self.finished_work.wait()
+            try:
+                await self._close()
+            finally:
+                self.loop = None
 
-    def run_async(self, coro):  # type: ignore
-        """在工作线程中执行异步任务"""
-        if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(coro, self._loop)
+        asyncio.run(services())
 
-    def stop(self) -> None:
-        """停止事件循环"""
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
+    def submit(self, coroutine):
+        if self.loop and self.loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
+
+            def report(result):
+                if not result.cancelled() and result.exception():
+                    logger.warning(f"后台操作失败：{result.exception()}")
+            future.add_done_callback(report)
+            return future
+        coroutine.close()
+        return None
+
+    def stop(self):
+        if self.loop:
+            self.loop.call_soon_threadsafe(self.finished_work.set)
 
 
-def _resource_path(relative: str) -> Path:
-    """获取资源文件路径（兼容 PyInstaller 打包和开发模式）"""
-    if hasattr(sys, "_MEIPASS"):
-        return Path(sys._MEIPASS) / relative
-    return Path(__file__).resolve().parent.parent / relative
+class Bridge(QObject):
+    mode = Signal(object)
+    status = Signal(dict)
+    candidate = Signal(dict)
+    clipboard = Signal(str)
+    online = Signal(bool)
+    update = Signal(object)
 
 
-def setup_logging(log_dir: str = "logs", level: str = "INFO") -> None:
-    """配置日志"""
-    log_path = Path(log_dir)
-    if not log_path.is_absolute():
-        log_path = Path.home() / ".tandorbit" / log_dir
-    log_path.mkdir(parents=True, exist_ok=True)
+def setup_logging(config):
+    path = Path(config.log_dir)
+    if not path.is_absolute():
+        path = Path.home() / ".tandorbit" / path
+    path.mkdir(parents=True, exist_ok=True)
     logger.remove()
     if sys.stderr is not None:
-        logger.add(sys.stderr, level=level)
-    logger.add(
-        str(log_path / "tandorbit_{time:YYYY-MM-DD}.log"),
-        rotation="1 day",
-        retention="30 days",
-        level="DEBUG",
-    )
-
-
-def _start_agent_server(config, event_bus: EventBus, state_manager: StateManager, plugin_registry: PluginRegistry, config_manager: ConfigManager | None = None) -> None:
-    """启动 Agent Server（Mac: 权威模式状态源; Windows: 接收指令）"""
-    import threading
-
-    import uvicorn
-
-    from app.communication.agent_server import AgentServer
-
-    is_mac = sys.platform == "darwin"
-    port = config.mac.port if is_mac else config.windows.port
-    server = AgentServer(host="0.0.0.0", port=port, config_manager=config_manager or ConfigManager())
-    server.set_state_manager(state_manager)
-    server.set_auth_token(config.agent_token)
-
-    # 注入插件，使 API 端点可用
-    display = plugin_registry.get("betterdisplay") if is_mac else plugin_registry.get("multimonitortool")
-    deskflow = plugin_registry.get("deskflow")
-    audio = plugin_registry.get("audio")
-    server.set_plugins(display=display, deskflow=deskflow, audio=audio)
-
-    app = server.create_app()
-
-    def _run():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        uv_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning")
-        loop.run_until_complete(uvicorn.Server(uv_config).serve())
-
-    threading.Thread(target=_run, daemon=True).start()
-    logger.info(f"Agent Server starting on port {port}")
+        logger.add(sys.stderr, level=config.log_level)
+    logger.add(path / "tandorbit_{time:YYYY-MM-DD}.log", rotation="1 day",
+               retention=f"{config.log_retention_days} days", level=config.log_level)
+    return path
 
 
 def main() -> None:
-    """Mac 端主入口"""
-    # 加载配置
-    config_manager = ConfigManager()
-    config = config_manager.load()
-
-    # 配置日志
-    setup_logging(config.log_dir, config.log_level)
-
-    logger.info(f"TandOrbit starting on {'macOS' if sys.platform == 'darwin' else 'Windows'}...")
-
-    # 防止 macOS 锁屏后挂起服务
-    import subprocess
-    if sys.platform == "darwin":
-        _caffeinate = subprocess.Popen(
-            ["caffeinate", "-i", "-s"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    # 创建核心组件
-    event_bus = EventBus()
-    state_manager = StateManager(event_bus)
-    scheduler = Scheduler(event_bus)
-    plugin_registry = PluginRegistry(event_bus)
-
-    # 注册插件（按平台区分）
-    deskflow_cfg = {**config.deskflow.model_dump(), **config.tools.model_dump()}
-    plugin_registry.register(DeskflowPlugin(event_bus, deskflow_cfg))
-    plugin_registry.register(DDCPlugin(event_bus, config.tools.model_dump()))
-
-    if sys.platform == "darwin":
-        plugin_registry.register(BetterDisplayPlugin(event_bus, config.betterdisplay.model_dump()))
-        plugin_registry.register(WoLPlugin(event_bus))
-    else:
-        from plugins.audio.plugin import AudioPlugin
-        from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
-        plugin_registry.register(MultiMonitorToolPlugin(event_bus, config.tools.model_dump()))
-        plugin_registry.register(AudioPlugin(event_bus, config.audio.model_dump()))
-
-    # 创建控制器
-    controller = Controller(
-        event_bus=event_bus,
-        state_manager=state_manager,
-        scheduler=scheduler,
-        plugin_registry=plugin_registry,
-        config_manager=config_manager,
-    )
-
-    # 启动 Agent Server（注入插件）
-    _start_agent_server(config, event_bus, state_manager, plugin_registry, config_manager)
-
-    # 创建 Qt 应用
     app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)
+    app.setWindowIcon(QIcon(str(_resource_path("resources/icon.png"))))
+    if "--smoke-test" in sys.argv:
+        from starlette.applications import Starlette
+        from uvicorn import Config
 
-    # macOS: 开发模式下隐藏 Dock 图标（打包后由 LSUIElement 处理）
-    if sys.platform == "darwin":
-        try:
-            from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
-            NSApplication.sharedApplication().setActivationPolicy_(
-                NSApplicationActivationPolicyAccessory
-            )
-        except ImportError:
-            # PyObjC 不可用时（如打包环境），LSUIElement 已处理
-            pass
-
-    # 创建主窗口
-    window = MainWindow(hotkeys=config.hotkeys)
-    if sys.platform == "win32":
-        window.setWindowIcon(QIcon(str(_resource_path("resources/icon.ico"))))
-    else:
-        window.setWindowIcon(QIcon(str(_resource_path("resources/icon.png"))))
-    window.show()
-
-    # 创建系统托盘
-    if sys.platform == "win32":
-        tray_icon = QIcon(str(_resource_path("resources/icon.ico")))
-    else:
-        tray_icon = QIcon(str(_resource_path("resources/tray_icon.png")))
-        tray_icon.setIsMask(True)  # macOS 模板图标，自动适配深色/浅色菜单栏
-    tray = TrayIcon(tray_icon)
-    tray.show()
-
-    # 全局快捷键（双平台：macOS CGEventTap / Windows RegisterHotKey）
-    from app.hotkeys import GlobalHotkeyManager
-    hotkey_manager = GlobalHotkeyManager()
-    hotkey_manager.set_hotkeys(config.hotkeys)
-
-    # 创建设置对话框
-    settings_dialog = SettingsDialog(
-        config_manager,
-        plugin_provider=lambda: plugin_registry.get_all(),
-        parent=window,
-    )
-
-    # 创建异步工作线程
-    worker = AsyncWorker(controller)
-    worker.start()
-
-    # --- 启动发现服务（window 创建后） ---
-    from PySide6.QtCore import QTimer, QObject, Signal
-
-    class DiscoverySignals(QObject):
-        peer_discovered = Signal(dict)
-
-    discovery_signals = DiscoverySignals()
-
-    from app.communication.discovery import DiscoveryService
-    discovery = DiscoveryService(
-        local_port=config.mac.port if sys.platform == "darwin" else config.windows.port,
-        wol_nic=config.wol_nic,
-        config_manager=config_manager,
-    )
-
-    _peer_already_discovered = False
-
-    def _on_peer_discovered(peer):
-        """发现对端后在主线程更新 UI（config 已由 DiscoveryService 自动更新）"""
-        nonlocal _peer_already_discovered
-        _peer_already_discovered = True
-        logger.info(f"[UI] Peer discovered: {peer['role']} at {peer['host']}")
-        if peer["role"] == "windows":
-            window.update_device_status(
-                mac_online=True,
-                win_online=True,
-                deskflow_connected=False,
-            )
-        elif peer["role"] == "mac":
-            window.update_device_status(
-                mac_online=True,
-                win_online=True,
-                deskflow_connected=False,
-            )
-        # 通知设置对话框刷新对端信息（如果打开的话）
-        settings_dialog.refresh_remote_info()
-
-    discovery_signals.peer_discovered.connect(_on_peer_discovered)
-
-    def _on_peer_found(peer):
-        """发现对端（后台线程）→ 通过信号转发到主线程"""
-        discovery_signals.peer_discovered.emit(peer)
-
-    discovery.on_peer_discovered(_on_peer_found)
-    discovery.start()
-
-    # 连接信号
-    def on_mode_changed(event: ModeChangedEvent) -> None:
-        mode = Mode[event.new_mode] if event.new_mode in Mode.__members__ else Mode.UNKNOWN
-        window.update_mode(mode)
-        tray.update_mode(mode)
-
-    def open_settings() -> None:
-        settings_dialog._load_values()  # 刷新当前配置
-        if settings_dialog.exec():  # 用户点了保存
-            window.update_hotkeys(config_manager.config.hotkeys)
-            hotkey_manager.set_hotkeys(config_manager.config.hotkeys)  # 全局快捷键热更新
-
-    window.sleep_display_requested.connect(lambda: worker.run_async(controller.sleep_display()))
-    window.settings_requested.connect(open_settings)
-
-    # 应用内日志查看器：loguru sink → Qt 信号（跨线程安全）
-    from app.gui.log_viewer import LogViewer
-    log_viewer = LogViewer()
-
-    def _loguru_to_viewer(message) -> None:
-        record = message.record
-        log_viewer.log_message.emit(str(record["message"]), record["level"].name)
-
-    logger.add(_loguru_to_viewer, level="INFO")
-
-    def open_log_viewer() -> None:
-        """打开应用内日志查看器"""
-        log_viewer.show()
-        log_viewer.raise_()
-        log_viewer.activateWindow()
-
-    tray.view_log_requested.connect(open_log_viewer)
-
-    # 切换记录看板（成功率 + 最近历史）
-    from app.gui.switch_history_dialog import SwitchHistoryDialog
-    switch_history_dialog = SwitchHistoryDialog(
-        history_provider=controller.get_switch_history,
-        rate_provider=controller.get_success_rate,
-    )
-
-    def open_switch_history() -> None:
-        switch_history_dialog._refresh()
-        switch_history_dialog.show()
-        switch_history_dialog.raise_()
-        switch_history_dialog.activateWindow()
-
-    tray.switch_history_requested.connect(open_switch_history)
-
-    def show_and_activate():
+        Config(Starlette(), log_config=None, ws="websockets-sansio").load()
+        window = MainWindow()
         window.show()
-        window.raise_()
-        window.activateWindow()
+        app.processEvents()
+        window.close()
+        return
 
-    tray.show_window_requested.connect(show_and_activate)
-    tray.settings_requested.connect(open_settings)
+    role = {"darwin": "mac", "win32": "windows"}.get(sys.platform)
+    if role is None:
+        QMessageBox.critical(None, "TandOrbit", "TandOrbit 支持 macOS 和 Windows。")
+        return
+    config = ConfigManager()
+    saved = config.load()
+    logs = setup_logging(saved)
+    bridge = Bridge()
+    bus = EventBus()
+    state = StateManager(bus)
+    registry = PluginRegistry(bus)
+
+    if role == "mac":
+        from plugins.native_display.mac import MacDisplay
+        registry.register(MacDisplay(bus, saved.betterdisplay.model_dump()))
+        registry.register(WoLPlugin(bus))
+    elif saved.display.windows_backend == "native":
+        from plugins.native_display.windows import WindowsDisplay
+        registry.register(WindowsDisplay(bus))
+    else:
+        from plugins.multimonitortool.plugin import MultiMonitorToolPlugin
+        registry.register(MultiMonitorToolPlugin(bus, saved.tools.model_dump()))
+    registry.register(AudioPlugin(bus, saved.audio.model_dump()))
+
+    window = MainWindow(hotkeys=saved.hotkeys)
+    power = DisplayPower()
+    power.install(app, window)
+    native = create_native_input(role)
+    pairing = Pairing(config.data_dir, role)
+    sharing = ShareSession(role, config, native, bridge.clipboard.emit, bridge.status.emit)
+    controller = Controller(bus, state, Scheduler(bus), registry, config)
+    runtime = Runtime(controller, role, pairing, power, bridge.status.emit, sharing)
+    local = saved.mac if role == "mac" else saved.windows
+    discovery = DiscoveryService(local_port=local.port, wol_nic=saved.wol_nic)
+    prevent_idle = None
+
+    async def initialize():
+        nonlocal prevent_idle
+        if role == "mac":
+            try:
+                prevent_idle = await asyncio.create_subprocess_exec(
+                    "/usr/bin/caffeinate", "-i", "-w", str(os.getpid()),
+                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                )
+            except OSError as exc:
+                logger.warning(f"无法维持 Mac Agent 的后台唤醒：{exc}")
+        await registry.initialize_all()
+        await registry.enable_all()
+        try:
+            await runtime.start()
+        except Exception as exc:
+            bridge.status.emit({"phase": "connection_error", "error": str(exc)})
+            raise
+
+    async def shutdown():
+        try:
+            await runtime.close()
+            await registry.shutdown_all()
+        finally:
+            if prevent_idle and prevent_idle.returncode is None:
+                prevent_idle.terminate()
+                await prevent_idle.wait()
+
+    worker = Worker(initialize, shutdown)
+    bus.subscribe(ModeChangedEvent, lambda event: bridge.mode.emit(Mode[event.new_mode]))
+    bridge.mode.connect(window.update_mode)
+    bridge.status.connect(window.show_operation)
+
+    clipboard = app.clipboard()
+    bridge.clipboard.connect(clipboard.setText)
+
+    def clipboard_changed():
+        if sharing._clipboard_armed and clipboard.mimeData() and clipboard.mimeData().hasText():
+            sharing.clipboard_changed(clipboard.text())
+    clipboard.dataChanged.connect(clipboard_changed)
+
+    connected = False
+
+    def online_changed(online):
+        nonlocal connected
+        connected = online
+        window.update_device_status(role == "mac" or online, role == "windows" or online,
+                                    window._deskflow_status._online)
+    bridge.online.connect(online_changed)
+
+    def desktop_changed(*_args):
+        screen = app.primaryScreen()
+        if screen:
+            rect = screen.geometry()
+            scale = screen.devicePixelRatio() if role == "windows" else 1
+            native.geometry((int(rect.x() * scale), int(rect.y() * scale),
+                             int(rect.width() * scale), int(rect.height() * scale)))
+    desktop_changed()
+    app.primaryScreenChanged.connect(desktop_changed)
+    for screen in app.screens():
+        screen.geometryChanged.connect(desktop_changed)
+    app.screenAdded.connect(lambda screen: screen.geometryChanged.connect(desktop_changed))
+
+    tray_icon = QIcon(str(_resource_path(
+        "resources/tray_icon.png" if role == "mac" else "resources/icon.ico")))
+    if role == "mac":
+        tray_icon.setIsMask(True)
+    tray = TrayIcon(tray_icon)
+    tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+    app.setQuitOnLastWindowClosed(not tray_available)
+    if tray_available:
+        tray.show()
+    bridge.mode.connect(tray.update_mode)
+    bridge.status.connect(tray.show_operation)
+
+    def notice(message):
+        window.show_operation({"phase": "failed", "error": str(message)})
+
+    async def perform(mode, wake):
+        try:
+            if wake:
+                bridge.status.emit({"phase": "waking", "target": mode.name})
+                await runtime.wake_windows()
+            await controller.switch_mode(mode)
+        except Exception as exc:
+            bridge.status.emit({"phase": "failed", "error": str(exc)})
+
+    def switch(mode):
+        wake = (role == "mac" and mode in (Mode.WINDOWS, Mode.SHARE)
+                and pairing.peer is not None and not connected)
+        if wake and QMessageBox.question(window, "唤醒 Windows", "Windows Agent 当前离线。发送唤醒包？") != (
+            QMessageBox.StandardButton.Yes):
+            return
+        if not worker.submit(perform(mode, wake)):
+            notice("服务正在启动，请稍后再试")
+
+    window.mode_switch_requested.connect(switch)
+    tray.mode_switch_requested.connect(switch)
+    hotkeys = GlobalHotkeyManager()
+    hotkeys.set_hotkeys(saved.hotkeys)
+    actions = {"switch_mac": Mode.MAC, "switch_windows": Mode.WINDOWS, "switch_share": Mode.SHARE}
+    hotkeys.hotkey_pressed.connect(lambda action: switch(actions[action]) if action in actions else None)
+    hotkeys.start()
+
+    async def sleep():
+        try:
+            if runtime.coordinator._active or runtime.participant._lock.locked():
+                raise RuntimeError("切换进行中，请稍后休眠显示器")
+            sharing.release()
+            await power.set(False)
+        except Exception as exc:
+            bridge.status.emit({"phase": "failed", "error": str(exc)})
+    window.sleep_display_requested.connect(lambda: worker.submit(sleep()))
+
+    async def recover():
+        try:
+            await runtime.recover_local()
+            bridge.status.emit({"phase": "local_restored"})
+        except Exception as exc:
+            bridge.status.emit({"phase": "failed", "error": str(exc)})
+    tray.recover_requested.connect(lambda: worker.submit(recover()))
+    window.recover_requested.connect(lambda: worker.submit(recover()))
+
+    def show_settings():
+        async def remote():
+            return await runtime.client.request("GET", "/api/capabilities") if runtime.client else {}
+
+        dialog = SettingsDialog(
+            config, plugin_provider=registry.get_all, parent=window, submit=worker.submit,
+            remote_provider=remote, pairing=pairing, discovery=discovery,
+        )
+        dialog.pairing_changed.connect(lambda: worker.submit(runtime.start()))
+        previous_port = (config.config.mac if role == "mac" else config.config.windows).port
+        if dialog.exec():
+            window.update_hotkeys(config.config.hotkeys)
+            hotkeys.set_hotkeys(config.config.hotkeys)
+        current_port = (config.config.mac if role == "mac" else config.config.windows).port
+        if current_port != previous_port:
+            worker.submit(runtime.start())
+        dialog.deleteLater()
+
+    window.settings_requested.connect(show_settings)
+    tray.settings_requested.connect(show_settings)
+    tray.show_window_requested.connect(lambda: (window.show(), window.raise_(), window.activateWindow()))
     tray.quit_requested.connect(app.quit)
 
-    # --- 检查更新 ---
-    from app.updater import check_update, __version__
+    history = SwitchHistoryDialog(controller.get_switch_history, controller.get_success_rate)
+    viewer = LogViewer(log_dir=logs)
+    sink = logger.add(lambda message: viewer.log_message.emit(
+        str(message).rstrip(), message.record["level"].name))
+    tray.switch_history_requested.connect(lambda: (history._refresh(), history.show(), history.raise_()))
+    tray.view_log_requested.connect(lambda: (viewer.show(), viewer.raise_()))
 
-    def _show_update_dialog(release: dict) -> None:
-        """显示更新对话框"""
-        from PySide6.QtGui import QDesktopServices
-        from PySide6.QtCore import QUrl
+    async def update():
+        bridge.update.emit(await check_update())
 
-        tag = release.get("tag_name", "")
-        url = release.get("html_url", "")
-        body = release.get("body", "")
+    def show_update(release):
+        if not release:
+            QMessageBox.information(window, "检查更新", f"未发现可下载的更新。当前版本 {__version__}。")
+        elif QMessageBox.question(window, "发现新版本", f"打开 {release['tag_name']} 下载页面？") == (
+            QMessageBox.StandardButton.Yes):
+            url = QUrl(release.get("html_url", ""))
+            if url.scheme() == "https" and url.host() == "github.com":
+                QDesktopServices.openUrl(url)
+    tray.check_update_requested.connect(lambda: worker.submit(update()))
+    bridge.update.connect(show_update)
 
-        # 截取更新日志前 500 字
-        changelog = body[:500] + "..." if len(body) > 500 else body
+    probe = None
+    async def check_peer():
+        online = await runtime.online()
+        bridge.online.emit(online)
+        if online:
+            await runtime.recover()
+            await runtime.observe_startup()
 
-        msg = QMessageBox(window)
-        msg.setWindowTitle("发现新版本")
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setText(f"新版本 <b>{tag}</b> 已发布（当前 {__version__}）")
-        msg.setInformativeText(f"<b>更新日志：</b><br><pre style='font-size:11px;'>{changelog}</pre>")
-        msg.setStandardButtons(QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Ignore)
-        msg.button(QMessageBox.StandardButton.Open).setText("前往下载")
-        msg.button(QMessageBox.StandardButton.Ignore).setText("稍后再说")
-        msg.setStyleSheet(_MSGBOX_STYLE)
+    def poll():
+        nonlocal probe
+        if probe is None or probe.done():
+            probe = worker.submit(check_peer())
 
-        if msg.exec() == QMessageBox.StandardButton.Open:
-            QDesktopServices.openUrl(QUrl(url))
-
-    # 用信号桥接异步回调到主线程
-    from PySide6.QtCore import QObject, Signal as QSignal
-
-    class _UpdateSignals(QObject):
-        result = QSignal(object, bool)  # (release_or_None, silent)
-
-    _update_signals = _UpdateSignals()
-
-    def _on_update_result(release, silent):
-        if release:
-            _show_update_dialog(release)
-        elif not silent:
-            _msgbox(QMessageBox.Icon.Information, "检查更新", f"当前已是最新版本 {__version__}", window)
-
-    _update_signals.result.connect(_on_update_result)
-
-    def _do_check_update(silent: bool = False) -> None:
-        """执行更新检查（异步）"""
-        async def _check():
-            release = await check_update()
-            _update_signals.result.emit(release, silent)
-        worker.run_async(_check())
-
-    tray.check_update_requested.connect(lambda: _do_check_update(silent=False))
-
-    # 启动后静默检查一次更新
-    from PySide6.QtCore import QTimer
-    QTimer.singleShot(3000, lambda: _do_check_update(silent=True))
-
-    # 订阅事件
-    event_bus.subscribe(ModeChangedEvent, on_mode_changed)
-
-    # 异步状态更新 → UI
-    worker.status_updated.connect(window.update_device_status)
-
-    # 插件初始化报告 → 缺失依赖时弹出检查清单
-    def on_init_report(results: list) -> None:
-        failed = [ok for _, ok, _ in results if not ok]
-        if not failed:
-            return
-        from app.gui.requirements_dialog import RequirementsDialog
-        dlg = RequirementsDialog(window, config_manager=config_manager)
-        dlg.exec()
-
-    worker.init_report.connect(on_init_report)
-
-    # 初始化完成后更新 UI
-    def on_init_done() -> None:
-        window.update_mode(state_manager.current_mode)
-        tray.update_mode(state_manager.current_mode)
-        is_mac = sys.platform == "darwin"
-        # 设置初始状态（如果对端已被发现则保留其在线状态）
-        if not _peer_already_discovered:
-            if is_mac:
-                window.update_device_status(
-                    mac_online=True,
-                    win_online=False,
-                    deskflow_connected=False,
-                )
-            else:
-                window.update_device_status(
-                    mac_online=False,
-                    win_online=True,
-                    deskflow_connected=False,
-                )
-        # 定时探测对端在线状态（通过 Agent HTTP，而非 ping：ping 可能被防火墙拦截，
-        # 且同步 subprocess 会阻塞 GUI 线程）
-        from PySide6.QtCore import QTimer
-        from PySide6.QtCore import Signal as QSignal, QObject
-
-        class _PeerProbe(QObject):
-            result = QSignal(bool)
-
-        peer_probe = _PeerProbe()
-
-        def _on_peer_probe(online: bool) -> None:
-            if is_mac:
-                if online != window._win_status._online:
-                    window.update_device_status(
-                        mac_online=True,
-                        win_online=online,
-                        deskflow_connected=window._deskflow_status._online,
-                    )
-            else:
-                if online != window._mac_status._online:
-                    window.update_device_status(
-                        mac_online=online,
-                        win_online=True,
-                        deskflow_connected=window._deskflow_status._online,
-                    )
-
-        peer_probe.result.connect(_on_peer_probe)
-
-        async def _probe_peer() -> None:
-            if is_mac:
-                online = await controller.check_windows_agent()
-            else:
-                online = await controller.check_mac_agent()
-            peer_probe.result.emit(online)
-
-        def _check_peer_online() -> None:
-            worker.run_async(_probe_peer())
-
-        peer_timer = QTimer()
-        peer_timer.timeout.connect(_check_peer_online)
-        peer_timer.start(5000)
-
-        # 定时检查 Deskflow SSL 连接状态
-        class _DeskflowChecker(QObject):
-            result = QSignal(bool)
-
-        deskflow_checker = _DeskflowChecker()
-        deskflow_plugin = plugin_registry.get("deskflow")
-
-        def _on_deskflow_result(connected: bool) -> None:
-            if connected != window._deskflow_status._online:
-                window.update_device_status(
-                    mac_online=True,
-                    win_online=window._win_status._online,
-                    deskflow_connected=connected,
-                )
-
-        deskflow_checker.result.connect(_on_deskflow_result)
-
-        def _check_deskflow():
-            if not deskflow_plugin:
-                return
-            async def _do_check():
-                connected = await deskflow_plugin.check_connection()
-                deskflow_checker.result.emit(connected)
-            worker.run_async(_do_check())
-
-        deskflow_timer = QTimer()
-        deskflow_timer.timeout.connect(_check_deskflow)
-        deskflow_timer.start(5000)
-
-        # 周期状态对账：发现两端模式不一致（用于排查状态分裂）
-        def _check_reconcile():
-            async def _do_reconcile():
-                await controller.reconcile_remote_state()
-            worker.run_async(_do_reconcile())
-
-        reconcile_timer = QTimer()
-        reconcile_timer.timeout.connect(_check_reconcile)
-        reconcile_timer.start(30000)
-
-    worker.init_done.connect(on_init_done)
-
-    # 切换完成后刷新 UI 按钮状态（确保与实际模式一致）
-    class _ModeSyncSignals(QObject):
-        sync = QSignal()
-        error = QSignal(str)
-
-    _mode_sync = _ModeSyncSignals()
-
-    def _sync_mode_ui() -> None:
-        window.update_mode(controller.current_mode)
-        tray.update_mode(controller.current_mode)
-
-    def _on_switch_error(message: str) -> None:
-        _msgbox(QMessageBox.Icon.Warning, "切换失败", message, window)
-
-    _mode_sync.sync.connect(_sync_mode_ui)
-    _mode_sync.error.connect(_on_switch_error)
-
-    # 模式切换：检查 Windows 是否在线，离线时询问是否 WoL
-    def on_mode_switch(mode: Mode) -> None:
-        # 切换中或已是目标模式：直接忽略（避免误弹"切换失败"）
-        if controller.is_transitioning:
-            logger.info(f"Ignoring mode switch to {mode.name}: transition in progress")
-            return
-        if mode == controller.current_mode:
-            logger.info(f"Ignoring mode switch to {mode.name}: already in this mode")
-            return
-        if mode == Mode.WINDOWS or mode == Mode.SHARE:
-            win_online = window._win_status._online
-            if not win_online:
-                msg = QMessageBox(window)
-                msg.setWindowTitle("Windows 离线")
-                msg.setIcon(QMessageBox.Icon.Question)
-                msg.setText("Windows 未开机或不在网络中，是否发送 WoL 唤醒？")
-                yes_btn = msg.addButton("唤醒", QMessageBox.ButtonRole.AcceptRole)
-                no_btn = msg.addButton("取消", QMessageBox.ButtonRole.RejectRole)
-                msg.setDefaultButton(yes_btn)
-                msg.setStyleSheet(_MSGBOX_STYLE)
-                msg.exec()
-                if msg.clickedButton() == yes_btn:
-                    cfg = config_manager.config
-                    if cfg.windows.mac_address:
-                        worker.run_async(_wake_and_switch(mode))
-                    else:
-                        _msgbox(QMessageBox.Icon.Warning, "缺少配置", "请先在设置中填写 Windows 的 MAC 地址。", window)
-                        _sync_mode_ui()
-                else:
-                    _sync_mode_ui()
-                return
-        # 显示加载动画，切换期间禁用全部模式按钮
-        window.set_mode_loading(mode, True)
-        window.set_modes_enabled(False)
-        async def _switch_and_sync():
-            try:
-                ok = await controller.switch_mode(mode)
-                if not ok:
-                    _mode_sync.error.emit(
-                        f"切换到 {mode.name} 失败：{controller.last_error}"
-                    )
-            finally:
-                _mode_sync.sync.emit()
-        worker.run_async(_switch_and_sync())
-
-    async def _wake_and_switch(mode: Mode):
-        """发送 WoL 后等待 Windows 上线再切换"""
-        cfg = config_manager.config
-        wol = plugin_registry.get("wol")
-        if wol:
-            await wol.wake(cfg.windows.mac_address)
-            logger.info(f"WoL sent to {cfg.windows.mac_address}")
-        # 等待 Windows 上线
-        import asyncio
-        window.set_modes_enabled(False)
-        for _ in range(30):  # 最多等 60 秒
-            if await controller.check_windows_agent():
-                logger.info("Windows is online, switching mode")
-                ok = await controller.switch_mode(mode)
-                if not ok:
-                    _mode_sync.error.emit(
-                        f"切换到 {mode.name} 失败：{controller.last_error}"
-                    )
-                _mode_sync.sync.emit()
-                return
-            await asyncio.sleep(2)
-        logger.error("Windows did not come online after WoL")
-        _mode_sync.sync.emit()
-        _msgbox(QMessageBox.Icon.Warning, "唤醒超时", "Windows 未在 60 秒内上线，请检查网络。")
-
-    window.mode_switch_requested.connect(on_mode_switch)
-    tray.mode_switch_requested.connect(on_mode_switch)
-
-    # 全局快捷键 → 模式切换
-    _ACTION_TO_MODE = {
-        "switch_mac": Mode.MAC,
-        "switch_windows": Mode.WINDOWS,
-        "switch_share": Mode.SHARE,
-    }
-
-    def _on_hotkey(action: str) -> None:
-        mode = _ACTION_TO_MODE.get(action)
-        if mode is not None:
-            on_mode_switch(mode)
-
-    hotkey_manager.hotkey_pressed.connect(_on_hotkey)
-    if not hotkey_manager.start() and sys.platform == "darwin":
-        logger.warning("全局快捷键未启用：请到 系统设置 → 隐私与安全性 → 辅助功能 允许 TandOrbit")
-
-    logger.info(f"TandOrbit started on {'macOS' if sys.platform == 'darwin' else 'Windows'}")
+    async def candidate(peer):
+        if await runtime.probe_candidate(peer):
+            bridge.online.emit(True)
+            await runtime.recover()
+    bridge.candidate.connect(lambda peer: worker.submit(candidate(peer)))
+    discovery.on_peer_discovered(bridge.candidate.emit)
+    timer = QTimer(window)
+    timer.timeout.connect(poll)
+    timer.start(2500)
+    worker.ready.connect(poll)
+    worker.start()
+    discovery.start()
+    online_changed(False)
+    window.show()
     app.exec()
-
-    # 清理
-    worker.run_async(controller.shutdown())
-    worker.wait(1000)
+    timer.stop()
+    discovery.stop()
+    hotkeys.stop()
     worker.stop()
-    worker.wait(3000)
-    logger.info("TandOrbit stopped")
+    worker.wait()
+    power.close(app)
+    logger.remove(sink)
 
 
 if __name__ == "__main__":

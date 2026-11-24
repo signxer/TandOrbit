@@ -28,6 +28,10 @@ a = Analysis(
         'PySide6.QtWidgets',
         'starlette',
         'uvicorn',
+        'uvicorn.loops.asyncio',
+        'uvicorn.protocols.http.h11_impl',
+        'uvicorn.protocols.websockets.websockets_sansio_impl',
+        'uvicorn.lifespan.on',
         'httpx',
         # sqlite3 的 C 扩展（PyInstaller 有时漏收，缺了会报 No module named '_sqlite3'）
         'sqlite3',
@@ -79,7 +83,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=True,
+    argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
@@ -104,6 +108,7 @@ if sys.platform == 'darwin':
         name='TandOrbit.app',
         icon=os.path.join(ROOT, 'resources', 'icon.icns'),
         bundle_identifier='com.tandorbit.app',
+        version=APP_VERSION,
         info_plist={
             'CFBundleShortVersionString': APP_VERSION,
             'CFBundleName': 'TandOrbit',

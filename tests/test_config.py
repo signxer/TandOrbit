@@ -78,3 +78,17 @@ class TestV2ConfigFields:
         config = AppConfig()
         assert config.display.windows_primary_monitor_id == ""
         assert config.display.windows_secondary_monitor_id == ""
+
+
+def test_failed_import_preserves_committed_config(tmp_path):
+    config = ConfigManager(tmp_path / "config.yaml")
+    config.update({"windows": {"port": 5012}, "agent_token": "private-token"})
+    before = (tmp_path / "config.yaml").read_bytes()
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text("windows: {port: -1}", encoding="utf-8")
+    assert not config.import_from(invalid)
+    assert (tmp_path / "config.yaml").read_bytes() == before
+    assert config.config.windows.port == 5012
+    export = tmp_path / "export.yaml"
+    assert config.export_to(export)
+    assert "private-token" not in export.read_text(encoding="utf-8")

@@ -56,3 +56,22 @@ class TestMainWindowLayout:
             assert window._hk_labels, "应有快捷键提示"
         finally:
             window.close()
+
+
+def test_mode_request_only_highlights_after_commit(qapp):
+    from app.enums import Mode
+    from app.gui.main_window import MainWindow
+
+    window = MainWindow()
+    try:
+        window.update_mode(Mode.MAC)
+        window._mode_buttons[Mode.SHARE].click()
+        assert window._mode_buttons[Mode.MAC].isChecked()
+        assert not window._mode_buttons[Mode.SHARE].isChecked()
+        window.show_operation({"phase": "verify", "target": "SHARE"})
+        assert not any(button.isEnabled() for button in window._mode_buttons.values())
+        window.show_operation({"phase": "committed", "target": "SHARE"})
+        assert window._mode_buttons[Mode.SHARE].isChecked()
+        assert all(button.isEnabled() for button in window._mode_buttons.values())
+    finally:
+        window.close()

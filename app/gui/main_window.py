@@ -87,7 +87,10 @@ def _resource_path(relative: str) -> Path:
     """获取资源文件路径（兼容 PyInstaller 打包和开发模式）"""
     if hasattr(sys, "_MEIPASS"):
         return Path(sys._MEIPASS) / relative
-    return Path(__file__).resolve().parent.parent.parent / relative
+    root = Path(__file__).resolve().parent.parent.parent
+    if (root / "resources").is_dir():
+        return root / relative
+    return Path(sys.prefix) / "share" / "tandorbit" / relative
 
 # 各模式对应的 SVG 资源和文字
 _MODE_CONFIG: dict[Mode, tuple[str, str]] = {
@@ -111,6 +114,7 @@ class StatusIndicator(QLabel):
 
     def update_status(self, online: bool) -> None:
         self._online = online
+        self.setAccessibleName(f"{self._text} · {'就绪' if online else '未就绪'}")
         dot = "#4CAF50" if online else "#9E9E9E"
         self.setText(
             f'<span style="color:{dot};">●</span> '
@@ -162,6 +166,7 @@ class ModeButton(QPushButton):
         self.mode = mode
         self._text = text
         self.setCheckable(True)
+        self.setAccessibleName(text)
         # 宽度固定，高度自适应内容（不同字体/DPI 下都不会裁剪图标或文字）
         self.setFixedWidth(88)
         self.setMinimumHeight(76)
@@ -207,6 +212,10 @@ class ModeButton(QPushButton):
         self._dot_count = (self._dot_count + 1) % 4
         self._label.setText(self._text + "." * self._dot_count)
 
+    def nextCheckState(self) -> None:
+        # Requests are reflected only after the coordinator commits.
+        pass
+
     def set_status_only(self) -> None:
         """设为纯状态指示器（保留 checkable 以配合 update_mode，但禁止点击切换）"""
         self._status_only = True
@@ -225,6 +234,7 @@ class MainWindow(QMainWindow):
     mode_switch_requested = Signal(Mode)
     sleep_display_requested = Signal()
     settings_requested = Signal()
+    recover_requested = Signal()
 
     _SETTINGS_STYLE = f"""
         QPushButton {{
@@ -241,6 +251,7 @@ class MainWindow(QMainWindow):
     def __init__(self, base_dir: Path | None = None, hotkeys: dict[str, str] | None = None) -> None:
         super().__init__()
         self._base_dir = base_dir or _resource_path(".")
+        self._confirmed_mode = Mode.UNKNOWN
         self._hotkeys = hotkeys or {
             "switch_mac": "Ctrl+Option+1" if platform.system() == "Darwin" else "Ctrl+Alt+1",
             "switch_windows": "Ctrl+Option+2" if platform.system() == "Darwin" else "Ctrl+Alt+2",
@@ -291,7 +302,7 @@ class MainWindow(QMainWindow):
         # --- 设备状态（横向，与按钮列对齐） ---
         self._mac_status = StatusIndicator("Mac")
         self._win_status = StatusIndicator("Windows")
-        self._deskflow_status = StatusIndicator("Deskflow")
+        self._deskflow_status = StatusIndicator("键鼠")
 
         status_row = QHBoxLayout()
         status_row.setSpacing(12)
@@ -336,6 +347,12 @@ class MainWindow(QMainWindow):
             self._hk_labels.append(lbl)
             hk_row.addWidget(lbl)
         layout.addLayout(hk_row)
+        self._operation = QLabel("等待确认当前模式")
+        self._operation.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._operation.setTextFormat(Qt.TextFormat.PlainText)
+        self._operation.setWordWrap(True)
+        self._operation.setMinimumHeight(30)
+        layout.addWidget(self._operation)
 
         layout.addSpacing(6)
 
@@ -345,12 +362,17 @@ class MainWindow(QMainWindow):
         tool_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         sleep_btn = self._make_icon_button("resources/sleep.svg")
+        sleep_btn.setAccessibleName("休眠显示器")
         sleep_btn.clicked.connect(self._confirm_sleep)
         tool_row.addWidget(sleep_btn)
 
         settings_btn = self._make_icon_button("resources/setting.svg")
+        settings_btn.setAccessibleName("设置")
         settings_btn.clicked.connect(self.settings_requested.emit)
         tool_row.addWidget(settings_btn)
+        self._recover = QPushButton("恢复本机显示")
+        self._recover.clicked.connect(self.recover_requested.emit)
+        tool_row.addWidget(self._recover)
 
         layout.addLayout(tool_row)
 
@@ -375,9 +397,44 @@ class MainWindow(QMainWindow):
 
     def update_mode(self, mode: Mode) -> None:
         """更新当前模式显示"""
+        self._confirmed_mode = mode
+        self._mode_group.setExclusive(False)
         for m, btn in self._mode_buttons.items():
             btn.setChecked(m == mode)
             btn.set_loading(False)
+        self._mode_group.setExclusive(True)
+
+    def show_operation(self, record: dict) -> None:
+        phase = record["phase"]
+        if phase == "sharing":
+            self._deskflow_status.update_status(record["input"])
+            self._deskflow_status.setToolTip(
+                f"键鼠{'已就绪' if record['input'] else '未就绪'} · "
+                f"剪贴板{'已就绪' if record['clipboard'] else '未启用或未就绪'}")
+            return
+        if phase == "audio_warning":
+            self._operation.setToolTip(record.get("error", ""))
+            return
+        target = Mode.__members__.get(record.get("target", ""))
+        labels = {
+            "queued": "排队中", "waking": "正在等待 Windows 上线", "prepare": "预检和保存拓扑",
+            "activate": "启用目标输出", "release": "释放原输出", "verify": "读取两端输出",
+            "decision_commit": "正在确认提交", "commit": "正在提交", "committed": "切换完成",
+            "recovering": "待恢复", "restored": "已恢复原输出", "unpaired": "请先在设置中配对",
+            "audio_warning": "显示已切换", "local_restored": "已请求恢复本机输出",
+        }
+        label = labels.get(phase, "操作失败")
+        name = _MODE_CONFIG[target][1] if target in _MODE_CONFIG else ""
+        detail = record.get("error") or record.get("warning")
+        if target and phase == "committed":
+            self.update_mode(target)
+        busy = phase in ("queued", "waking", "prepare", "activate", "release", "verify", "commit",
+                         "decision_commit", "recovering")
+        self.set_modes_enabled(not busy)
+        for mode, button in self._mode_buttons.items():
+            button.set_loading(busy and target == mode)
+            button.setEnabled(not busy)
+        self._operation.setText(" · ".join(item for item in (name, label, detail) if item))
 
     def set_mode_loading(self, mode: Mode, loading: bool) -> None:
         """设置指定模式按钮的加载状态"""

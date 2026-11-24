@@ -19,11 +19,13 @@ class MacClient:
     向 Windows Agent 发送 HTTP 请求。
     """
 
-    def __init__(self, host: str = "192.168.1.100", port: int = 5000, timeout: float = 10.0, token: str = "") -> None:
+    def __init__(self, host: str = "192.168.1.100", port: int = 5000, timeout: float = 10.0, token: str = "", tls=None) -> None:
         self.host = host
         self.port = port
         self.token = token
-        self._base_url = f"http://{host}:{port}"
+        self.tls = tls
+        hostname = f"[{host}]" if ":" in host else host
+        self._base_url = f"{'https' if tls else 'http'}://{hostname}:{port}"
         self._timeout = timeout
         self._headers = {"Authorization": f"Bearer {token}"} if token else {}
         self._client: httpx.AsyncClient | None = None
@@ -35,6 +37,8 @@ class MacClient:
                 base_url=self._base_url,
                 timeout=self._timeout,
                 headers=self._headers,
+                verify=self.tls or True,
+                trust_env=False,
             )
         return self._client
 
@@ -251,3 +255,9 @@ class MacClient:
             return None
         except Exception:
             return None
+
+    async def request(self, method: str, path: str, **kwargs) -> dict:
+        client = await self._get_client()
+        response = await client.request(method, path, **kwargs)
+        response.raise_for_status()
+        return response.json()

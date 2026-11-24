@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import shlex
 import shutil
 from typing import Any
 
@@ -456,29 +458,49 @@ class MultiMonitorToolPlugin(Plugin):
         logger.error(f"Failed to set display mode to {mode_name} after {retries + 1} attempts")
         return False
 
-    async def _run_tool(self, args: str, timeout: float = 15.0) -> bool:
-        """执行 MultiMonitorTool 命令（写操作，通过 PowerShell 包装避免 GUI 阻塞）"""
-        cmd = (
-            "powershell -NoProfile -NonInteractive -Command "
-            f"\"& '{self._tool_path}' {args}\""
-        )
-        logger.debug(f"Running: {cmd}")
+    async def capture_topology(self) -> str:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "topology.cfg"
+            if not await self._run_tool(("/SaveConfig", str(path))) or not path.is_file():
+                raise OSError("无法保存 MultiMonitorTool 拓扑")
+            return base64.b64encode(path.read_bytes()).decode("ascii")
+
+    async def apply_topology(self, snapshot: str) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "topology.cfg"
+            path.write_bytes(base64.b64decode(snapshot))
+            if not await self._run_tool(("/LoadConfig", str(path))):
+                raise OSError("无法恢复 MultiMonitorTool 拓扑")
+
+    async def _run_tool(self, args: str | tuple[str, ...], timeout: float = 15.0) -> bool:
+        """Run the selected compatibility executable without a shell."""
+        if isinstance(args, str):
+            args = tuple(part.strip('"') for part in shlex.split(args, posix=False))
+        proc = None
         try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            proc = await asyncio.create_subprocess_exec(
+                self._tool_path, *args,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            if proc.returncode != 0:
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            if proc.returncode:
                 logger.error(f"Tool error: {stderr.decode(errors='replace').strip()}")
                 return False
             return True
         except asyncio.TimeoutError:
-            logger.error(f"Tool timeout: {cmd}")
+            if proc and proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+            logger.error(f"Tool timeout: {args[0]}")
             return False
-        except Exception as e:
-            logger.error(f"Tool exception: {e}")
+        except OSError as exc:
+            logger.error(f"Tool exception: {exc}")
             return False
 
     async def _run_powershell_script(self, script: str, timeout: float = 20.0) -> str | None:
@@ -495,10 +517,10 @@ class MultiMonitorToolPlugin(Plugin):
             with open(ps1_path, "w", encoding="utf-8") as f:
                 f.write(script)
 
-            cmd = f'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{ps1_path}"'
             logger.debug(f"Running PowerShell script: {ps1_path}")
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
+            proc = await asyncio.create_subprocess_exec(
+                "powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", ps1_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )

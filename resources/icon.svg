@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img">
+  <title>TandOrbit</title>
+  <desc>Two offset displays connected by a rising handoff path.</desc>
+  <defs>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#1E3A61"/>
+      <stop offset="1" stop-color="#0B1528"/>
+    </linearGradient>
+    <linearGradient id="link" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#5C9CFF"/>
+      <stop offset="1" stop-color="#67E9D1"/>
+    </linearGradient>
+  </defs>
+  <rect x="7" y="7" width="114" height="114" rx="28" fill="url(#surface)"/>
+  <rect x="7.5" y="7.5" width="113" height="113" rx="27.5" fill="none" stroke="#A4C7FF" stroke-opacity=".26"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="6">
+    <path d="M50 66H27a5 5 0 0 1-5-5V44a5 5 0 0 1 5-5h26a5 5 0 0 1 5 5v6M40 67v8m-9 0h18" stroke="#A8C8FF"/>
+    <path d="M78 54h23a5 5 0 0 1 5 5v17a5 5 0 0 1-5 5H75a5 5 0 0 1-5-5v-6m18 12v8m-9 0h18" stroke="#EDF5FF"/>
+    <path d="M46 60c7 6 13 5 18 0s11-6 18 0" stroke="url(#link)" stroke-width="7"/>
+  </g>
+</svg>

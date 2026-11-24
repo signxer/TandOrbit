@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="1080" height="292" viewBox="0 0 1080 292" role="img" aria-labelledby="title description">
+  <title id="title">Three display modes</title>
+  <desc id="description">Mac mode assigns both displays to Mac. Windows mode assigns both to Windows. Share mode assigns the first display to Mac and the second to Windows.</desc>
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#172E4D"/><stop offset="1" stop-color="#0A1527"/>
+    </linearGradient>
+    <linearGradient id="mac" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#365EA4"/><stop offset="1" stop-color="#1D3763"/>
+    </linearGradient>
+    <linearGradient id="win" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#217274"/><stop offset="1" stop-color="#123D46"/>
+    </linearGradient>
+    <linearGradient id="handoff" x1="0" y1="0" x2="1" y2="0">
+      <stop stop-color="#83AEFF"/><stop offset="1" stop-color="#75E6D2"/>
+    </linearGradient>
+    <pattern id="dots" width="18" height="18" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1" fill="#8BADE6" opacity=".21"/>
+    </pattern>
+    <g id="mac-screen">
+      <rect width="115" height="74" rx="10" fill="url(#mac)" stroke="#91B7FF" stroke-width="2"/>
+      <path d="M57.5 75v13m-19 0h38" fill="none" stroke="#91B7FF" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="57" cy="34" r="12" fill="none" stroke="#E0EBFF" stroke-width="2"/>
+      <circle cx="66" cy="26" r="3.5" fill="#E0EBFF"/>
+    </g>
+    <g id="win-screen">
+      <rect width="115" height="74" rx="10" fill="url(#win)" stroke="#7CE3D2" stroke-width="2"/>
+      <path d="M57.5 75v13m-19 0h38" fill="none" stroke="#7CE3D2" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M47 24h21v21H47zM57.5 24v21M47 34.5h21" fill="none" stroke="#BFF6EB" stroke-width="1.8" stroke-linejoin="round"/>
+    </g>
+  </defs>
+  <rect width="1080" height="292" rx="24" fill="url(#field)"/>
+  <rect x="1" y="1" width="1078" height="290" rx="23" fill="url(#dots)" stroke="#355071"/>
+  <g fill="#111F34" fill-opacity=".88" stroke="#314B6F">
+    <rect x="29" y="28" width="322" height="236" rx="17"/>
+    <rect x="379" y="28" width="322" height="236" rx="17"/>
+    <rect x="729" y="28" width="322" height="236" rx="17"/>
+  </g>
+  <g fill="#F0F5FF" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="25" font-weight="650">
+    <text x="55" y="73">Mac</text><text x="405" y="73">Windows</text><text x="755" y="73">Share</text>
+  </g>
+  <g stroke="#314B6F">
+    <path d="M55 90h270M405 90h270M755 90h270"/>
+  </g>
+  <use x="63" y="113" xlink:href="#mac-screen"/><use x="202" y="127" xlink:href="#mac-screen"/>
+  <use x="413" y="113" xlink:href="#win-screen"/><use x="552" y="127" xlink:href="#win-screen"/>
+  <use x="763" y="113" xlink:href="#mac-screen"/><use x="902" y="127" xlink:href="#win-screen"/>
+  <path d="M865 158c12 0 13 15 25 15 9 0 11-7 21-7" fill="none" stroke="url(#handoff)" stroke-width="4" stroke-linecap="round"/>
+  <path d="m905 160 6 6-6 6" fill="none" stroke="#75E6D2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <g font-family="ui-monospace, 'SF Mono', Consolas, monospace" font-size="12" letter-spacing=".8">
+    <text x="55" y="242" fill="#9DB8DD">MAC / MAC</text>
+    <text x="405" y="242" fill="#A0CEC9">WIN / WIN</text>
+    <text x="755" y="242" fill="#BBDFE7">MAC / WIN</text>
+  </g>
+</svg>

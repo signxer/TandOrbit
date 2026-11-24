@@ -1,12 +1,8 @@
-"""端到端远端状态验证测试（Controller._verify_remote_state）
-
-注意：`_verify_remote_state` 是 Mac 端专属逻辑——Windows 端（非 Darwin）
-在本机管线内做本地验证，该函数直接返回 True。因此本文件测试仅在 macOS 上有效。
-"""
+"""Regression tests for the compatibility controller’s remote state checks."""
 
 from __future__ import annotations
 
-import sys
+import platform
 
 import pytest
 
@@ -19,10 +15,10 @@ from app.plugin_base import PluginRegistry
 from app.scheduler.scheduler import Scheduler
 from app.state.state_machine import StateManager
 
-pytestmark = pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason="远端状态验证是 Mac 端专属逻辑（Windows 端在本机管线内验证，见 _verify_remote_state）",
-)
+@pytest.fixture(autouse=True)
+def mac_controller(monkeypatch):
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+
 
 # 共享临时目录：避免 Controller 的 SQLite 历史存储写入真实 ~/.tandorbit
 import tempfile

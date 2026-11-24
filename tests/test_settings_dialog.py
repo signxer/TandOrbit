@@ -1,6 +1,7 @@
 """设置对话框回归测试（真实实例化，验证异步刷新不抛异常）"""
 
 import os
+import platform
 import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -68,12 +69,13 @@ class TestSettingsDialogRefresh:
         dialog = _make_dialog(tmp_path, {"audio": _FakeAudio()})
         try:
             dialog._refresh_audio()
+            combo = dialog._mac_audio if platform.system() == "Darwin" else dialog._win_audio
             for _ in range(50):
                 qapp.processEvents()
-                if dialog._mac_audio.count() >= 2:
+                if combo.count() >= 2:
                     break
                 time.sleep(0.02)
-            assert dialog._mac_audio.count() == 2
+            assert combo.count() == 2
         finally:
             dialog.close()
 

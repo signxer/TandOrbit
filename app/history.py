@@ -47,6 +47,13 @@ class SwitchHistoryStore:
                     error TEXT NOT NULL DEFAULT ''
                 )"""
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(switch_history)")}
+            for column in ("operation_id", "phase"):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE switch_history ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS switch_operation ON switch_history(operation_id)"
+                " WHERE operation_id <> ''")
 
     def record(self, entry: dict[str, Any]) -> None:
         """记录一次切换（写库 + 更新内存缓存）"""
@@ -54,8 +61,11 @@ class SwitchHistoryStore:
             try:
                 with self._connect() as conn:
                     conn.execute(
-                        "INSERT INTO switch_history (time, from_mode, to_mode, success, duration_ms, error)"
-                        " VALUES (?,?,?,?,?,?)",
+                        "INSERT INTO switch_history (time, from_mode, to_mode, success, duration_ms, error,"
+                        " operation_id, phase) VALUES (?,?,?,?,?,?,?,?)"
+                        " ON CONFLICT(operation_id) WHERE operation_id <> '' DO UPDATE SET"
+                        " success=excluded.success, phase=excluded.phase, error=excluded.error,"
+                        " duration_ms=excluded.duration_ms",
                         (
                             entry.get("time", ""),
                             entry.get("from", ""),
@@ -63,12 +73,16 @@ class SwitchHistoryStore:
                             1 if entry.get("success") else 0,
                             int(entry.get("duration_ms", 0)),
                             entry.get("error", ""),
+                            entry.get("operation_id", ""),
+                            entry.get("phase", ""),
                         ),
                     )
             except Exception as e:
                 self._db_ok = False
                 logger.warning(f"切换历史写入失败，降级为内存模式: {e}")
         with self._lock:
+            if entry.get("operation_id"):
+                self._cache = [row for row in self._cache if row.get("operation_id") != entry["operation_id"]]
             self._cache.insert(0, dict(entry))
             if len(self._cache) > self._cache_limit:
                 self._cache.pop()
@@ -126,7 +140,7 @@ class SwitchHistoryStore:
             rows: list[dict[str, Any]] = []
             with self._connect() as conn:
                 cur = conn.execute(
-                    "SELECT time, from_mode, to_mode, success, duration_ms, error"
+                    "SELECT time, from_mode, to_mode, success, duration_ms, error, operation_id, phase"
                     " FROM switch_history ORDER BY id DESC LIMIT ?",
                     (limit,),
                 )
@@ -139,6 +153,8 @@ class SwitchHistoryStore:
                             "success": bool(r[3]),
                             "duration_ms": r[4],
                             "error": r[5],
+                            "operation_id": r[6],
+                            "phase": r[7],
                         }
                     )
             return rows

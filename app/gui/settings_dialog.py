@@ -14,13 +14,16 @@ from PySide6.QtGui import QKeyEvent
 from typing import Any, Callable
 
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QMessageBox,
     QLineEdit,
     QPushButton,
     QSpinBox,
@@ -126,15 +129,26 @@ class SettingsDialog(QDialog):
     """设置对话框"""
 
     _displays_loaded = Signal(list)
-    _audio_loaded = Signal(list)
+    _audio_loaded = Signal(object)
+    pairing_changed = Signal()
+    _brightness_loaded = Signal(object)
+    _connection_checked = Signal(str)
 
     def __init__(
         self,
         config_manager: ConfigManager,
         plugin_provider: Callable[[], dict[str, Any]] | None = None,
         parent: QWidget | None = None,
+        *, submit=None, remote_provider=None, pairing=None, discovery=None,
     ) -> None:
         super().__init__(parent)
+        self._submit = submit
+        self._remote_provider = remote_provider
+        self._pairing = pairing
+        self._discovery = discovery
+        self._display_objects = {}
+        self._display_loading = False
+        self._audio_loading = False
         self._config_manager = config_manager
         self._plugin_provider = plugin_provider
         self.setWindowTitle("TandOrbit 设置")
@@ -142,6 +156,7 @@ class SettingsDialog(QDialog):
         self.setStyleSheet(self._build_stylesheet())
         self._displays_loaded.connect(self._populate_displays)
         self._audio_loaded.connect(self._populate_audio)
+        self._brightness_loaded.connect(self._show_brightness)
         self._setup_ui()
         self._load_values()
 
@@ -291,7 +306,7 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         tabs.addTab(self._create_connection_tab(), "连接")
         tabs.addTab(self._create_display_tab(), "显示器")
-        tabs.addTab(self._create_deskflow_tab(), "Deskflow")
+        tabs.addTab(self._create_sharing_tab(), "共享")
         tabs.addTab(self._create_audio_tab(), "音频")
         tabs.addTab(self._create_hotkeys_tab(), "快捷键")
         if platform.system() != "Darwin":
@@ -314,12 +329,6 @@ class SettingsDialog(QDialog):
         btn_layout.addWidget(save_btn)
         btn_layout.addWidget(cancel_btn)
         layout.addLayout(btn_layout)
-
-    def _generate_token(self) -> None:
-        """生成随机 Agent 访问令牌"""
-        import secrets
-
-        self._agent_token.setText(secrets.token_hex(16))
 
     def _export_config(self) -> None:
         """导出配置到用户指定路径"""
@@ -370,20 +379,6 @@ class SettingsDialog(QDialog):
         self._local_port.setRange(1, 65535)
         local_form.addRow("监听端口:", self._local_port)
 
-        # Agent 访问令牌（两端需一致；空 = 不鉴权）
-        self._agent_token = QLineEdit()
-        token_gen_btn = QPushButton("生成")
-        token_gen_btn.setFixedWidth(60)
-        token_gen_btn.clicked.connect(self._generate_token)
-        token_row = QHBoxLayout()
-        token_row.addWidget(self._agent_token)
-        token_row.addWidget(token_gen_btn)
-        local_form.addRow("Agent 访问令牌:", token_row)
-        token_hint = QLabel("设置后两端必须一致；未授权设备将无法控制本机（含关闭显示器/关机）")
-        token_hint.setStyleSheet("color: #888; font-size: 11px;")
-        token_hint.setWordWrap(True)
-        local_form.addRow("", token_hint)
-
         # WoL 网卡下拉
         self._wol_nic = QComboBox()
         self._wol_nic.setMinimumWidth(220)
@@ -394,37 +389,87 @@ class SettingsDialog(QDialog):
         local_form.addRow("", nic_hint)
         layout.addRow(local_group)
 
-        # --- 对端信息（自动发现，只读） ---
-        remote_label = "Windows" if is_mac else "Mac"
-        remote_group = QGroupBox(f"对端（{remote_label} · 自动发现）")
-        remote_form = QFormLayout(remote_group)
-
-        self._remote_status = QLabel("●  等待发现...")
-        self._remote_status.setStyleSheet("color: #9E9E9E; font-size: 12px;")
-        remote_form.addRow("状态:", self._remote_status)
-
-        self._remote_host = QLabel("—")
-        self._remote_host.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        remote_form.addRow("主机地址:", self._remote_host)
-
-        self._remote_port = QLabel("—")
-        remote_form.addRow("端口:", self._remote_port)
-
-        self._remote_mac = QLabel("—")
-        self._remote_mac.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        remote_form.addRow("MAC 地址:", self._remote_mac)
-
-        layout.addRow(remote_group)
-
-        # 兼容字段（_save 中需要，但不在 UI 显示）
-        self._win_host = QLineEdit()
-        self._win_mac = QLineEdit()
-        self._win_port = QSpinBox()
-        self._mac_host = QLineEdit()
-        self._mac_mac = QLineEdit()
-        self._mac_port = QSpinBox()
-
+        group = QGroupBox("双机配对")
+        form = QFormLayout(group)
+        self._remote_status = QLabel()
+        self._remote_status.setWordWrap(True)
+        form.addRow(self._remote_status)
+        self._connection_result = QLabel()
+        self._connection_result.setWordWrap(True)
+        self._connection_checked.connect(self._connection_result.setText)
+        form.addRow(self._connection_result)
+        self._offer_host = QLineEdit()
+        if self._discovery:
+            self._offer_host.setText(self._discovery._get_local_ip())
+        form.addRow("本机局域网地址", self._offer_host)
+        copy = QPushButton("复制本机配对信息")
+        copy.clicked.connect(self._copy_offer)
+        pair = QPushButton("粘贴对端配对信息…")
+        pair.clicked.connect(self._pair)
+        revoke = QPushButton("解除配对")
+        revoke.clicked.connect(self._revoke)
+        for button in (copy, pair, revoke):
+            form.addRow(button)
+            button.setEnabled(self._pairing is not None)
+        check = QPushButton("验证两端能力")
+        check.setEnabled(self._remote_provider is not None)
+        check.clicked.connect(self._check_connection)
+        form.addRow(check)
+        layout.addRow(group)
         return widget
+
+    def _copy_offer(self):
+        import json
+
+        nic = self._wol_nic.currentData() or ""
+        mac = DiscoveryService._get_local_mac(nic) if self._pairing.role == "windows" else ""
+        try:
+            offer = self._pairing.offer(self._offer_host.text(), self._local_port.value(), mac)
+            QApplication.clipboard().setText(json.dumps(offer))
+            QMessageBox.information(self, "已复制", f"本机指纹\n{offer['fingerprint']}")
+        except Exception as exc:
+            QMessageBox.warning(self, "无法生成配对信息", str(exc))
+
+    def _check_connection(self):
+        async def check():
+            try:
+                result = await self._remote_provider()
+                if not result:
+                    raise ValueError("尚未建立配对连接")
+                shared = "具备单屏控制" if result["single_display"] else "需要单屏控制兼容后端"
+                message = f"认证通过 · 对端显示器 {len(result['display'])} 台 · {shared}"
+            except Exception as exc:
+                message = f"对端验证失败 · {exc}"
+            self._connection_checked.emit(message)
+        self._run_refresh(check())
+
+    def _pair(self):
+        import json
+
+        text, ok = QInputDialog.getMultiLineText(self, "粘贴对端配对信息", "配对信息")
+        if not ok:
+            return
+        try:
+            if len(text) > 16 * 1024:
+                raise ValueError("配对信息超过长度限制")
+            offer = self._pairing.validate(json.loads(text))
+            if QMessageBox.question(
+                self, "核对对端设备指纹",
+                f"{offer['host']}:{offer['port']}\n{offer['fingerprint']}\n\n指纹与对端显示的一致？",
+            ) == QMessageBox.StandardButton.Yes:
+                self._pairing.trust(offer)
+                self.refresh_remote_info()
+                self.pairing_changed.emit()
+        except Exception as exc:
+            QMessageBox.warning(self, "配对失败", str(exc))
+
+    def _revoke(self):
+        if self._pairing.peer and QMessageBox.question(
+            self, "解除配对", "立即断开对端的控制和共享会话？",
+        ) == QMessageBox.StandardButton.Yes:
+            self._pairing.revoke()
+            self.refresh_remote_info()
+            self.pairing_changed.emit()
 
     def _refresh_nics(self) -> None:
         """刷新网卡列表"""
@@ -434,30 +479,13 @@ class SettingsDialog(QDialog):
             self._wol_nic.addItem(f"{nic['name']}  ({nic['mac']})", nic["name"])
 
     def refresh_remote_info(self) -> None:
-        """刷新对端信息（由 discovery 回调触发）"""
-        cfg = self._config_manager.config
-        is_mac = platform.system() == "Darwin"
-        if is_mac:
-            host = cfg.windows.host
-            port = cfg.windows.port
-            mac = cfg.windows.mac_address
+        peer = self._pairing.peer if self._pairing else None
+        if peer:
+            self._remote_status.setText(f"已配对 · {peer['host']}:{peer['port']}\n{peer['fingerprint']}")
+        elif self._discovery and self._discovery.peer:
+            self._remote_status.setText(f"发现候选 · {self._discovery.peer['host']} · 等待配对")
         else:
-            host = cfg.mac.host
-            port = cfg.mac.port
-            mac = cfg.mac.mac_address
-
-        if host and host != "192.168.1.100":
-            self._remote_status.setText("●  已发现")
-            self._remote_status.setStyleSheet("color: #4CAF50; font-size: 12px;")
-            self._remote_host.setText(host)
-            self._remote_port.setText(str(port))
-            self._remote_mac.setText(mac or "（未广播）")
-        else:
-            self._remote_status.setText("●  等待发现...")
-            self._remote_status.setStyleSheet("color: #9E9E9E; font-size: 12px;")
-            self._remote_host.setText("—")
-            self._remote_port.setText("—")
-            self._remote_mac.setText("—")
+            self._remote_status.setText("在两台电脑上交换配对信息，并核对双方指纹。")
 
     def _create_display_tab(self) -> QWidget:
         """显示器配置标签页"""
@@ -473,13 +501,17 @@ class SettingsDialog(QDialog):
         refresh_btn = QPushButton("刷新")
         refresh_btn.setFixedWidth(60)
         refresh_btn.clicked.connect(self._refresh_displays)
-        self._share_display = QComboBox()
+        self._share_display = QComboBox(widget)
         self._share_display.setMinimumWidth(320)
         hint = QLabel("选择显示器后对应 ID 会自动填入配置")
         hint.setStyleSheet("color: #888; font-size: 11px;")
         form.addRow("主显示器:", self._primary_id)
         form.addRow("副显示器:", self._secondary_id)
-        form.addRow("共享模式留 Windows:", self._share_display)
+        if platform.system() == "Darwin":
+            form.addRow("共享模式留 Windows:", self._share_display)
+        else:
+            self._share_display.hide()
+            form.addRow(QLabel("共享时 Windows 使用主屏还是副屏，由 Mac 端设置。"))
         row = QHBoxLayout()
         row.addWidget(refresh_btn)
         row.addStretch()
@@ -491,25 +523,67 @@ class SettingsDialog(QDialog):
         self._display_status.setWordWrap(True)
         self._display_status.hide()
         form.addRow("", self._display_status)
+        if platform.system() == "Windows":
+            self._brightness = QSpinBox()
+            self._brightness.setRange(0, 100)
+            self._brightness.setSuffix("%")
+            self._brightness_result = QLabel()
+            read = QPushButton("读取")
+            read.clicked.connect(lambda: self._change_brightness(None))
+            apply = QPushButton("应用")
+            apply.clicked.connect(lambda: self._change_brightness(self._brightness.value()))
+            controls = QHBoxLayout()
+            controls.addWidget(self._brightness)
+            controls.addWidget(read)
+            controls.addWidget(apply)
+            form.addRow("主屏亮度", controls)
+            form.addRow(self._brightness_result)
+        else:
+            self._betterdisplay_path = QLineEdit()
+            form.addRow("BetterDisplay CLI（重启后生效）", self._betterdisplay_path)
         layout.addRow(group)
 
         return widget
 
-    def _create_deskflow_tab(self) -> QWidget:
-        """Deskflow 配置标签页"""
-        widget = QWidget()
-        layout = QFormLayout(widget)
+    def _change_brightness(self, amount):
+        display = getattr(self, "_display_plugin", None)
+        target = self._primary_id.currentData()
+        if not hasattr(display, "brightness") or not target or not target.isdigit():
+            self._show_brightness(None)
+            return
+        async def change():
+            try:
+                value = await display.brightness(int(target), amount)
+            except OSError:
+                value = None
+            self._brightness_loaded.emit(value)
+        self._run_refresh(change())
 
-        group = QGroupBox("Deskflow 设置")
-        form = QFormLayout(group)
-        self._df_host = QLineEdit()
-        self._df_port = QSpinBox()
-        self._df_port.setRange(1, 65535)
-        self._df_client = QLineEdit()
-        form.addRow("服务器地址:", self._df_host)
-        form.addRow("端口:", self._df_port)
-        form.addRow("客户端名称:", self._df_client)
-        layout.addRow(group)
+    def _show_brightness(self, value):
+        if not hasattr(self, "_brightness_result"):
+            return
+        self._brightness_result.setText("显示器未报告可用的 DDC/CI 亮度控制" if value is None else "")
+        if value is not None:
+            self._brightness.setValue(value)
+
+    def _create_sharing_tab(self) -> QWidget:
+        widget = QWidget()
+        form = QFormLayout(widget)
+        self._shared_keys = QCheckBox("启用键鼠共享")
+        self._shared_clipboard = QCheckBox("同步新复制的纯文本")
+        self._shared_host = QComboBox()
+        self._shared_host.addItem("Windows", "windows")
+        self._shared_host.addItem("Mac", "mac")
+        self._shared_edge = QComboBox()
+        for label, value in (("右侧", "right"), ("左侧", "left"), ("上方", "top"), ("下方", "bottom")):
+            self._shared_edge.addItem(label, value)
+        form.addRow(self._shared_keys)
+        form.addRow("连接实体键鼠的电脑", self._shared_host)
+        form.addRow("对端屏幕方向", self._shared_edge)
+        form.addRow(self._shared_clipboard)
+        hint = QLabel("两端选择同一台主控机。Ctrl + Alt（Option）+ Esc 可立即收回键鼠。")
+        hint.setWordWrap(True)
+        form.addRow(hint)
         return widget
 
     def _create_audio_tab(self) -> QWidget:
@@ -535,7 +609,18 @@ class SettingsDialog(QDialog):
         row.addStretch()
         form.addRow("", row)
         layout.addRow(group)
+        system_audio = QPushButton("打开本机声音设置")
+        system_audio.clicked.connect(self._open_audio_settings)
+        form.addRow(system_audio)
         return widget
+
+    def _open_audio_settings(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        scheme = "x-apple.systempreferences:com.apple.Sound-Settings.extension" if (
+            platform.system() == "Darwin") else "ms-settings:sound"
+        QDesktopServices.openUrl(QUrl(scheme))
 
     def _create_tools_tab(self) -> QWidget:
         """外部工具路径配置标签页"""
@@ -565,15 +650,10 @@ class SettingsDialog(QDialog):
         cmm_row.addWidget(cmm_btn)
         form.addRow("ControlMyMonitor:", cmm_row)
 
-        # Deskflow
-        self._df_path = QLineEdit()
-        df_btn = QPushButton("浏览...")
-        df_btn.setFixedWidth(70)
-        df_btn.clicked.connect(lambda: self._browse_file(self._df_path))
-        df_row = QHBoxLayout()
-        df_row.addWidget(self._df_path)
-        df_row.addWidget(df_btn)
-        form.addRow("Deskflow:", df_row)
+        self._windows_backend = QComboBox()
+        self._windows_backend.addItem("Windows 原生（默认）", "native")
+        self._windows_backend.addItem("MultiMonitorTool 兼容", "multimonitortool")
+        form.addRow("显示器后端（重启后生效）", self._windows_backend)
 
         hint = QLabel("填写完整路径或确保工具所在目录已加入 PATH 环境变量")
         hint.setStyleSheet("color: #888; font-size: 11px;")
@@ -618,11 +698,9 @@ class SettingsDialog(QDialog):
         is_mac = platform.system() == "Darwin"
         if is_mac:
             self._local_port.setValue(cfg.mac.port)
+            self._betterdisplay_path.setText(cfg.betterdisplay.cli_path)
         else:
             self._local_port.setValue(cfg.windows.port)
-
-        # Agent 访问令牌
-        self._agent_token.setText(cfg.agent_token)
 
         # WoL 网卡
         if cfg.wol_nic:
@@ -632,9 +710,12 @@ class SettingsDialog(QDialog):
 
         # 对端信息（自动发现）
         self.refresh_remote_info()
-        self._df_host.setText(cfg.deskflow.server_host)
-        self._df_port.setValue(cfg.deskflow.server_port)
-        self._df_client.setText(cfg.deskflow.client_name)
+        self._shared_keys.setChecked(cfg.sharing.input_enabled)
+        self._shared_clipboard.setChecked(cfg.sharing.clipboard_enabled)
+        self._set_combo_data(self._shared_host, cfg.sharing.controller)
+        self._set_combo_data(self._shared_edge, cfg.sharing.edge)
+        self._set_combo_value(self._mac_audio, cfg.audio.mac_output)
+        self._set_combo_value(self._win_audio, cfg.audio.windows_output)
 
         # 显示器 — 异步从插件获取列表（选择恢复在 _populate_displays 中完成）
         self._refresh_displays()
@@ -652,7 +733,7 @@ class SettingsDialog(QDialog):
         if platform.system() != "Darwin":
             self._mmt_path.setText(cfg.tools.multimonitortool_path)
             self._cmm_path.setText(cfg.tools.controlmymonitor_path)
-            self._df_path.setText(cfg.tools.deskflow_path)
+            self._set_combo_data(self._windows_backend, cfg.display.windows_backend)
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         """设置 ComboBox 的值，按 data 匹配（data 是 ID 字符串）"""
@@ -667,74 +748,62 @@ class SettingsDialog(QDialog):
         idx = combo.findData(value)
         combo.setCurrentIndex(idx if idx >= 0 else 0)
 
+    def _run_refresh(self, coroutine):
+        if self._submit is not None:
+            return self._submit(coroutine)
+        # Standalone dialog displays mock or local data when no app worker is provided.
+        threading.Thread(target=asyncio.run, args=(coroutine,), daemon=True).start()
+        return True
+
     def _refresh_displays(self) -> None:
-        """从插件异步刷新显示器列表（后台线程，避免冻结 GUI）"""
-        self._primary_id.clear()
-        self._secondary_id.clear()
-        self._share_display.clear()
-        self._display_plugin = None
-
-        if not self._plugin_provider:
+        if self._display_loading:
+            return
+        plugins = self._plugin_provider() if self._plugin_provider else {}
+        self._display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
+        if not self._display_plugin:
             self._populate_displays([])
             return
-        plugins = self._plugin_provider()
-        display_plugin = plugins.get("betterdisplay") or plugins.get("multimonitortool")
-        if not display_plugin:
-            self._populate_displays([])
-            return
-        self._display_plugin = display_plugin
+        self._display_loading = True
 
-        def _worker() -> None:
+        async def read():
             try:
-                coro = display_plugin.list_displays()
-                loop = asyncio.new_event_loop()
-                try:
-                    result = loop.run_until_complete(coro)
-                finally:
-                    loop.close()
-                self._displays_loaded.emit(result or [])
+                displays = await self._display_plugin.list_displays()
             except Exception:
-                self._displays_loaded.emit([])
-
-        threading.Thread(target=_worker, daemon=True).start()
+                displays = []
+            self._displays_loaded.emit(displays)
+        if not self._run_refresh(read()):
+            self._display_loading = False
 
     def _populate_displays(self, displays: list) -> None:
-        """后台线程返回显示器列表后填充下拉框并恢复当前选择"""
-        cfg = self._config_manager.config
-
-        # 列表为空时给出原因提示（帮助判断是插件问题还是配置问题）
+        self._display_loading = False
+        cfg = self._config_manager.config.display
+        prefix = "mac" if platform.system() == "Darwin" else "windows"
+        fields = ((self._primary_id, cfg.primary_id, getattr(cfg, f"{prefix}_primary_monitor_id")),
+                  (self._secondary_id, cfg.secondary_id, getattr(cfg, f"{prefix}_secondary_monitor_id")),
+                  (self._share_display, cfg.share_display_id, ""))
         if self._display_status:
-            if displays:
-                self._display_status.hide()
-            else:
-                self._display_status.setText(f"⚠ {self._display_failure_reason()}")
-                self._display_status.show()
-
-        self._primary_id.clear()
-        self._secondary_id.clear()
-        self._share_display.clear()
-
-        if displays:
-            for d in displays:
-                # 显示型号名（如 "DELL U2720Q"），后面跟 DISPLAY 编号
-                display_name = d.name.rstrip(" \t\r\n")
-                if "\\" in display_name:
-                    display_name = display_name.split("\\")[-1]
-                label = f"{display_name}（DISPLAY{d.id}）"
-                self._primary_id.addItem(label, str(d.id))
-                self._secondary_id.addItem(label, str(d.id))
-                self._share_display.addItem(label, str(d.id))
-        else:
-            # 插件未返回列表：用配置里的 ID 作为占位项，并明确标注
-            for did in (cfg.display.primary_id, cfg.display.secondary_id, cfg.display.share_display_id):
-                label = f"Display {did}（未检测到列表）"
-                self._primary_id.addItem(label, str(did))
-                self._secondary_id.addItem(label, str(did))
-                self._share_display.addItem(label, str(did))
-
-        self._set_combo_value(self._primary_id, str(cfg.display.primary_id))
-        self._set_combo_value(self._secondary_id, str(cfg.display.secondary_id))
-        self._set_combo_value(self._share_display, str(cfg.display.share_display_id))
+            self._display_status.setText(self._display_failure_reason())
+            self._display_status.setVisible(not displays)
+        old = self._display_objects
+        self._display_objects = {str(display.id): display for display in displays}
+        for combo, initial, stable_id in fields:
+            previous = combo.currentData()
+            previous_display = old.get(previous)
+            identity = (previous_display.device_id or previous_display.monitor_id) if previous_display else stable_id
+            chosen = previous or str(initial)
+            combo.clear()
+            for item in displays:
+                label = f"{item.name} · {item.id}" + (" · 已断开" if not item.is_enabled else "")
+                combo.addItem(label, str(item.id))
+            if identity:
+                matches = [str(item.id) for item in displays if identity in (item.device_id, item.monitor_id)]
+                if len(matches) == 1:
+                    chosen = matches[0]
+                else:
+                    chosen = f"missing:{chosen}"
+            if combo.findData(chosen) < 0:
+                combo.addItem(f"需重新确认 · {initial}", chosen)
+            combo.setCurrentIndex(combo.findData(chosen))
 
     def _display_failure_reason(self) -> str:
         """分析显示器列表读取失败的原因（插件状态/错误信息）"""
@@ -752,47 +821,66 @@ class SettingsDialog(QDialog):
         return "未能读取显示器列表（插件未返回数据，请确认工具已安装并运行，或查看日志）"
 
     def _refresh_audio(self) -> None:
-        """从插件异步刷新音频设备列表（后台线程，避免冻结 GUI）"""
-        if not self._plugin_provider:
+        if self._audio_loading or not self._plugin_provider:
             return
-        plugins = self._plugin_provider()
-        audio_plugin = plugins.get("audio")
-        if not audio_plugin:
+        plugin = self._plugin_provider().get("audio")
+        if plugin is None:
             return
+        self._audio_loading = True
 
-        def _worker() -> None:
+        async def read():
+            role = "mac" if platform.system() == "Darwin" else "windows"
+            local, remote = [], []
             try:
-                coro = audio_plugin.list_devices()
-                loop = asyncio.new_event_loop()
-                try:
-                    result = loop.run_until_complete(coro)
-                finally:
-                    loop.close()
-                self._audio_loaded.emit(result or [])
+                local = await plugin.list_endpoints() if hasattr(plugin, "list_endpoints") else await plugin.list_devices()
             except Exception:
-                self._audio_loaded.emit([])
+                pass
+            if self._remote_provider:
+                try:
+                    remote = (await self._remote_provider()).get("audio", [])
+                except Exception:
+                    pass
+            self._audio_loaded.emit({"mac": local if role == "mac" else remote,
+                                     "windows": local if role == "windows" else remote})
+        if not self._run_refresh(read()):
+            self._audio_loading = False
 
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _populate_audio(self, devices: list) -> None:
-        """后台线程返回音频设备列表后填充下拉框并恢复选择"""
-        cfg = self._config_manager.config
-        for combo, key in ((self._mac_audio, "mac_output"), (self._win_audio, "windows_output")):
-            current = combo.currentText()
+    def _populate_audio(self, devices: dict) -> None:
+        cfg = self._config_manager.config.audio
+        self._audio_loading = False
+        for combo, role in ((self._mac_audio, "mac"), (self._win_audio, "windows")):
+            target = combo.currentText() or getattr(cfg, f"{role}_output")
+            device_key = "mac_device_uid" if role == "mac" else "windows_device_id"
+            stable = combo.currentData() or getattr(cfg, device_key)
             combo.clear()
-            for name in devices:
-                combo.addItem(name)
-            target = current or getattr(cfg.audio, key)
-            if target:
+            for item in devices[role]:
+                if isinstance(item, dict):
+                    combo.addItem(item["name"], item["id"])
+                else:
+                    combo.addItem(item)
+            index = combo.findData(stable) if stable else -1
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            else:
                 self._set_combo_value(combo, target)
+
+    @staticmethod
+    def _audio_id(combo):
+        return (combo.currentData() or "") if combo.currentText() == combo.itemText(combo.currentIndex()) else ""
 
     def _save(self) -> None:
         """保存配置"""
-        primary_id = int(self._primary_id.currentData() or self._primary_id.currentText() or 1)
-        secondary_id = int(self._secondary_id.currentData() or self._secondary_id.currentText() or 2)
-        share_display_id = int(self._share_display.currentData() or self._share_display.currentText() or 2)
         is_mac = platform.system() == "Darwin"
-
+        try:
+            primary_id, secondary_id = (
+                int(combo.currentData()) for combo in (self._primary_id, self._secondary_id))
+            share_display_id = int(self._share_display.currentData()) if is_mac else secondary_id
+        except (ValueError, TypeError):
+            QMessageBox.warning(self, "显示器绑定", "请重新选择缺失的屏幕，再保存设置。")
+            return
+        if primary_id == secondary_id or share_display_id not in (primary_id, secondary_id):
+            QMessageBox.warning(self, "显示器绑定", "主屏与副屏必须不同，共享时从两者中选择 Windows 使用的屏幕。")
+            return
         # 校验快捷键：不能为空、不能互相冲突
         hotkeys = {
             "switch_mac": self._hk_mac.text().strip(),
@@ -801,11 +889,11 @@ class SettingsDialog(QDialog):
         }
         for name, hk in hotkeys.items():
             if not hk:
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, "快捷键未设置", f"请为 {name} 录制快捷键。")
                 return
-        if len(set(hotkeys.values())) != 3:
-            from PySide6.QtWidgets import QMessageBox
+        from app.hotkeys import parse_hotkey
+        parsed = [parse_hotkey(value) for value in hotkeys.values()]
+        if any(value is None for value in parsed) or len(set(parsed)) != 3:
             QMessageBox.warning(self, "快捷键冲突", "三个模式快捷键不能重复，请重新录制。")
             return
 
@@ -818,20 +906,22 @@ class SettingsDialog(QDialog):
         updates = {
             **local_config,
             "wol_nic": self._wol_nic.currentData() or "",
-            "agent_token": self._agent_token.text().strip(),
             "display": {
                 "primary_id": primary_id,
                 "secondary_id": secondary_id,
                 "share_display_id": share_display_id,
             },
-            "deskflow": {
-                "server_host": self._df_host.text(),
-                "server_port": self._df_port.value(),
-                "client_name": self._df_client.text(),
+            "sharing": {
+                "input_enabled": self._shared_keys.isChecked(),
+                "clipboard_enabled": self._shared_clipboard.isChecked(),
+                "controller": self._shared_host.currentData(),
+                "edge": self._shared_edge.currentData(),
             },
             "audio": {
                 "mac_output": self._mac_audio.currentText(),
                 "windows_output": self._win_audio.currentText(),
+                "mac_device_uid": self._audio_id(self._mac_audio),
+                "windows_device_id": self._audio_id(self._win_audio),
             },
             "hotkeys": {
                 "switch_mac": hotkeys["switch_mac"],
@@ -840,11 +930,29 @@ class SettingsDialog(QDialog):
             },
         }
 
-        if platform.system() != "Darwin":
+        prefix = "mac" if is_mac else "windows"
+        selected = []
+        for role, number in (("primary", primary_id), ("secondary", secondary_id)):
+            monitor = self._display_objects.get(str(number))
+            if monitor:
+                identity = monitor.device_id or monitor.monitor_id
+                updates["display"][f"{prefix}_{role}_monitor_id"] = identity
+                if identity:
+                    selected.append(identity.casefold())
+        if len(selected) != len(set(selected)):
+            QMessageBox.warning(self, "显示器绑定", "系统为两块显示器报告了相同的身份，请检查连接。")
+            return
+        if not is_mac:
+            updates["display"]["windows_backend"] = self._windows_backend.currentData()
             updates["tools"] = {
                 "multimonitortool_path": self._mmt_path.text(),
                 "controlmymonitor_path": self._cmm_path.text(),
-                "deskflow_path": self._df_path.text(),
             }
-        self._config_manager.update(updates)
+        else:
+            updates["betterdisplay"] = {"cli_path": self._betterdisplay_path.text().strip()}
+        try:
+            self._config_manager.update(updates)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "无法保存设置", str(exc))
+            return
         self.accept()

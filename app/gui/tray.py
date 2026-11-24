@@ -22,6 +22,7 @@ class TrayIcon(QSystemTrayIcon):
     view_log_requested = Signal()
     switch_history_requested = Signal()
     quit_requested = Signal()
+    recover_requested = Signal()
 
     def __init__(self, icon: QIcon | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -72,6 +73,10 @@ class TrayIcon(QSystemTrayIcon):
         menu.addSeparator()
 
         # 查看日志
+        recover = QAction("恢复本机显示", menu)
+        recover.triggered.connect(self.recover_requested.emit)
+        menu.addAction(recover)
+
         view_log_action = QAction("查看日志", menu)
         view_log_action.triggered.connect(self.view_log_requested.emit)
         menu.addAction(view_log_action)
@@ -108,3 +113,12 @@ class TrayIcon(QSystemTrayIcon):
         self.setToolTip(f"TandOrbit - {name}")
         for m, action in getattr(self, "_mode_actions", {}).items():
             action.setEnabled(m != mode)
+
+    def show_operation(self, record: dict) -> None:
+        phase = record["phase"]
+        if phase in ("sharing", "audio_warning"):
+            return
+        busy = phase in ("queued", "waking", "prepare", "activate", "release", "verify", "commit",
+                         "decision_commit", "recovering")
+        for mode, action in self._mode_actions.items():
+            action.setEnabled(not busy and mode != self._current_mode)

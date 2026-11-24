@@ -1,10 +1,13 @@
 #!/bin/bash
+set -e
 cd "$(dirname "$0")"
-
-# 检查并安装依赖
-if ! python3 -c "import PySide6" 2>/dev/null; then
-    echo "正在安装依赖..."
-    python3 -m pip install -r requirements.txt --quiet
+if [[ ! -x .venv/bin/python ]]; then
+    if command -v python3.12 >/dev/null; then
+        python3.12 -m venv .venv
+    else
+        python3 -c 'import sys; assert sys.version_info >= (3, 11), "需要 Python 3.11+"'
+        python3 -m venv .venv
+    fi
+    .venv/bin/python -m pip install -e .
 fi
-
-python3 -m app.main
+exec .venv/bin/python -m app.main

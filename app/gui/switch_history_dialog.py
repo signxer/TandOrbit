@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from app.gui.main_window import _COLORS, _FONT
 
-_HEADERS = ["时间", "从", "到", "结果", "耗时(ms)", "失败原因"]
+_HEADERS = ["时间", "从", "到", "结果", "耗时(ms)", "阶段", "操作 ID", "详情"]
 
 
 class SwitchHistoryDialog(QDialog):
@@ -97,7 +97,7 @@ class SwitchHistoryDialog(QDialog):
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(len(_HEADERS) - 1, QHeaderView.ResizeMode.Stretch)
         self._table.verticalHeader().setVisible(False)
         layout.addWidget(self._table)
 
@@ -132,10 +132,14 @@ class SwitchHistoryDialog(QDialog):
                 str(rec.get("to", "")),
                 "✓ 成功" if rec.get("success") else "✗ 失败",
                 str(rec.get("duration_ms", "")),
+                str(rec.get("phase", "")),
+                str(rec.get("operation_id", ""))[:8],
                 str(rec.get("error", "")),
             ]
             for col, val in enumerate(values):
                 item = QTableWidgetItem(val)
+                if col == 6:
+                    item.setToolTip(str(rec.get("operation_id", "")))
                 if col == 3:
                     item.setForeground(Qt.GlobalColor.darkGreen if rec.get("success") else Qt.GlobalColor.red)
                 self._table.setItem(row, col, item)

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import shlex
+from pathlib import Path
 from typing import Any
 
 from loguru import logger
@@ -41,7 +43,8 @@ class BetterDisplayPlugin(Plugin):
 
     async def initialize(self) -> bool:
         """初始化：检查 BetterDisplay CLI 是否可用"""
-        cli = shutil.which("betterdisplaycli") or self._cli_path
+        cli = self._cli_path if Path(self._cli_path).is_file() else (
+            shutil.which("betterdisplaycli") or self._cli_path)
         # 如果 PATH 中找不到，尝试 Homebrew 路径
         if not shutil.which(cli) and not await self._file_exists(cli):
             cli = self.HOMEBREW_CLI_PATH
@@ -74,7 +77,7 @@ class BetterDisplayPlugin(Plugin):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            await proc.wait()
+            await asyncio.wait_for(proc.communicate(), timeout=5)
             return proc.returncode == 0
         except Exception:
             return False
@@ -176,6 +179,8 @@ class BetterDisplayPlugin(Plugin):
                 DisplayInfo(
                     id=tag_id,
                     name=name,
+                    monitor_id=str(item.get("cgDisplayID") or item.get("displayID") or ""),
+                    device_id=str(item.get("uuid") or item.get("displayUUID") or ""),
                     is_primary=is_primary,
                     is_enabled=is_enabled,
                 )
@@ -249,8 +254,8 @@ class BetterDisplayPlugin(Plugin):
         cmd = f"{self._cli_path} {args}"
         logger.debug(f"Running: {cmd}")
         try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
+            proc = await asyncio.create_subprocess_exec(
+                self._cli_path, *shlex.split(args),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -262,6 +267,9 @@ class BetterDisplayPlugin(Plugin):
             self._last_error = ""
             return stdout.decode(errors="replace").strip()
         except asyncio.TimeoutError:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
             self._last_error = "CLI timeout"
             logger.error(f"CLI timeout: {cmd}")
             return None
@@ -272,13 +280,4 @@ class BetterDisplayPlugin(Plugin):
 
     async def _file_exists(self, path: str) -> bool:
         """检查文件是否存在"""
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                f"test -f {path}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await proc.wait()
-            return proc.returncode == 0
-        except Exception:
-            return False
+        return Path(path).is_file()

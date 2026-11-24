@@ -61,6 +61,7 @@ class Controller:
         self._win_client: MacClient | None = None  # Mac → Windows
         self._mac_client: MacClient | None = None  # Windows → Mac
         self.last_error: str = ""  # 最近一次切换失败原因（供 GUI 展示）
+        self.runtime = None
         # 切换历史（SQLite 持久化，重启不丢）
         from app.history import SwitchHistoryStore
         self._history_store = SwitchHistoryStore(
@@ -73,6 +74,8 @@ class Controller:
 
     @property
     def is_transitioning(self) -> bool:
+        if self.runtime is not None:
+            return bool(self.runtime.coordinator._active or self.runtime.participant._lock.locked())
         return self._state.is_transitioning
 
     @property
@@ -236,6 +239,8 @@ class Controller:
         Returns:
             bool: 是否切换成功
         """
+        if self.runtime is not None:
+            return await self.runtime.switch(target)
         logger.info(f"Controller: switch_mode({target.name})")
         self.last_error = ""
         start_time = time.monotonic()
@@ -297,9 +302,6 @@ class Controller:
             self._record_switch(from_mode, target, False, start_time, self.last_error)
             return False
 
-        # 9. 提交状态
-        self._state.commit_transition()
-
         # 10. 后同步确认 + 端到端验证（带重试）
         if not await self._post_sync_and_verify(target):
             self._state.rollback_transition()
@@ -308,6 +310,8 @@ class Controller:
             logger.error(f"Remote display verification failed for {target.name}: {self.last_error}")
             self._record_switch(from_mode, target, False, start_time, self.last_error)
             return False
+
+        self._state.commit_transition()
 
         # 11. 持久化上次模式（启动恢复用）
         try:
@@ -414,8 +418,7 @@ class Controller:
         import asyncio
 
         for attempt in range(max_attempts):
-            await self._sync_mode_to_remote(target)
-            if await self._verify_remote_state(target):
+            if await self._sync_mode_to_remote(target) and await self._verify_remote_state(target):
                 return True
             if attempt < max_attempts - 1:
                 logger.warning(f"Remote state verification attempt {attempt + 1} failed, retrying...")
@@ -486,11 +489,10 @@ class Controller:
 
         for attempt in range(3):
             try:
-                if platform.system() == "Darwin":
-                    await self._get_win_client().set_mode(mode.name)
-                else:
-                    await self._get_mac_client().set_mode(mode.name)
-                return True  # 成功则退出
+                client = self._get_win_client() if platform.system() == "Darwin" else self._get_mac_client()
+                if await client.set_mode(mode.name):
+                    return True
+                return False
             except Exception as e:
                 if attempt < 2:
                     logger.warning(f"Mode sync attempt {attempt + 1} failed: {e}, retrying...")

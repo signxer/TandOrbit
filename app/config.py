@@ -6,11 +6,12 @@ YAML 配置加载与热更新。
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from threading import RLock
+from typing import Any, Literal, Optional
 
 import yaml
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class DisplayConfig(BaseModel):
@@ -26,6 +27,18 @@ class DisplayConfig(BaseModel):
     # 为空时回退 primary_id/secondary_id 数字编号。
     windows_primary_monitor_id: str = ""
     windows_secondary_monitor_id: str = ""
+    mac_primary_monitor_id: str = ""
+    mac_secondary_monitor_id: str = ""
+    windows_backend: Literal["native", "multimonitortool"] = "native"
+
+    @model_validator(mode="after")
+    def validate_roles(self) -> DisplayConfig:
+        if self.primary_id <= 0 or self.secondary_id <= 0 or self.primary_id == self.secondary_id:
+            raise ValueError("主屏和副屏必须是不同的显示器")
+        if self.share_display_id not in (self.primary_id, self.secondary_id):
+            # 旧配置可能保存过独立的共享屏编号；保存前由设置界面重新绑定。
+            self.share_display_id = self.secondary_id
+        return self
 
 
 class WindowsConfig(BaseModel):
@@ -33,8 +46,8 @@ class WindowsConfig(BaseModel):
 
     host: str = "192.168.1.100"
     mac_address: str = ""
-    port: int = 5000  # Windows Agent 监听端口
-    timeout: float = 10.0
+    port: int = Field(5000, ge=1, le=65535)
+    timeout: float = Field(10.0, gt=0, le=60)
 
 
 class MacConfig(BaseModel):
@@ -42,7 +55,7 @@ class MacConfig(BaseModel):
 
     host: str = "192.168.1.100"
     mac_address: str = ""  # Mac 的 MAC 地址，用于 WoL 唤醒
-    port: int = 5001  # Mac Agent 监听端口
+    port: int = Field(5001, ge=1, le=65535)
 
 
 class DeskflowConfig(BaseModel):
@@ -66,6 +79,15 @@ class AudioConfig(BaseModel):
 
     mac_output: str = "AirPods"
     windows_output: str = "USB DAC"
+    mac_device_uid: str = ""
+    windows_device_id: str = ""
+
+
+class SharingConfig(BaseModel):
+    input_enabled: bool = True
+    clipboard_enabled: bool = False
+    controller: Literal["windows", "mac"] = "windows"
+    edge: Literal["left", "right", "top", "bottom"] = "right"
 
 
 class ToolsConfig(BaseModel):
@@ -102,6 +124,7 @@ class AppConfig(BaseModel):
     deskflow: DeskflowConfig = Field(default_factory=DeskflowConfig)
     betterdisplay: BetterDisplayConfig = Field(default_factory=BetterDisplayConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
+    sharing: SharingConfig = Field(default_factory=SharingConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
     wol_nic: str = ""  # 本机 WoL 网卡名，如 en0 / Ethernet
@@ -124,6 +147,7 @@ class ConfigManager:
     def __init__(self, config_path: Path | str | None = None) -> None:
         self._path = Path(config_path) if config_path else DEFAULT_CONFIG_PATH
         self._config = AppConfig()
+        self._lock = RLock()
         self._callbacks: list[Any] = []
 
     @property
@@ -155,6 +179,10 @@ class ConfigManager:
 
     def save(self) -> None:
         """保存配置到文件（原子写入：先写临时文件再替换，避免崩溃损坏配置）"""
+        with self._lock:
+            self._write(self._config)
+
+    def _write(self, config: AppConfig) -> None:
         import os
         import tempfile
 
@@ -164,8 +192,8 @@ class ConfigManager:
         )
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    self._config.model_dump(),
+                yaml.safe_dump(
+                    config.model_dump(),
                     f,
                     default_flow_style=False,
                     allow_unicode=True,
@@ -182,19 +210,19 @@ class ConfigManager:
 
     def update(self, updates: dict[str, Any]) -> None:
         """更新配置（部分更新）"""
-        current = self._config.model_dump()
-        self._deep_merge(current, updates)
-        self._config = AppConfig(**current)
-        self.save()
+        with self._lock:
+            current = self._config.model_dump()
+            self._deep_merge(current, updates)
+            validated = AppConfig.model_validate(current)
+            self._write(validated)
+            self._config = validated
 
     def export_to(self, path: Path | str) -> bool:
         """导出当前配置到指定路径"""
-        import shutil
-
         try:
-            if not self._path.exists():
-                self.save()
-            shutil.copy2(self._path, str(path))
+            with self._lock:
+                data = self._config.model_dump(exclude={"agent_token"})
+                Path(path).write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
             logger.info(f"Config exported to {path}")
             return True
         except Exception as e:
@@ -203,13 +231,15 @@ class ConfigManager:
 
     def import_from(self, path: Path | str) -> bool:
         """从指定路径导入配置并重载"""
-        import shutil
-
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(path), str(self._path))
-            self.load()
-            logger.info(f"Config imported from {path}")
+            with self._lock:
+                data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("配置必须为 YAML 对象")
+                data.pop("agent_token", None)
+                validated = AppConfig.model_validate(data)
+                self._write(validated)
+                self._config = validated
             return True
         except Exception as e:
             logger.error(f"Failed to import config: {e}")
