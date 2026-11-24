@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,7 @@ class SwitchHistoryStore:
 
     def _init_db(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute(
                 """CREATE TABLE IF NOT EXISTS switch_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -59,7 +60,7 @@ class SwitchHistoryStore:
         """记录一次切换（写库 + 更新内存缓存）"""
         if self._db_ok:
             try:
-                with self._connect() as conn:
+                with closing(self._connect()) as conn, conn:
                     conn.execute(
                         "INSERT INTO switch_history (time, from_mode, to_mode, success, duration_ms, error,"
                         " operation_id, phase) VALUES (?,?,?,?,?,?,?,?)"
@@ -105,7 +106,7 @@ class SwitchHistoryStore:
             ok = sum(1 for r in rows if r.get("success"))
             return ok, total, ok / total
         try:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn:
                 cur = conn.execute(
                     "SELECT success FROM switch_history ORDER BY id DESC LIMIT ?",
                     (window,),
@@ -126,7 +127,7 @@ class SwitchHistoryStore:
         with self._lock:
             if self._db_ok:
                 try:
-                    with self._connect() as conn:
+                    with closing(self._connect()) as conn, conn:
                         conn.execute("DELETE FROM switch_history")
                 except Exception:
                     pass
@@ -138,7 +139,7 @@ class SwitchHistoryStore:
                 return [dict(e) for e in self._cache[:limit]]
         try:
             rows: list[dict[str, Any]] = []
-            with self._connect() as conn:
+            with closing(self._connect()) as conn:
                 cur = conn.execute(
                     "SELECT time, from_mode, to_mode, success, duration_ms, error, operation_id, phase"
                     " FROM switch_history ORDER BY id DESC LIMIT ?",

@@ -1,22 +1,14 @@
 """设置对话框回归测试（真实实例化，验证异步刷新不抛异常）"""
 
-import os
+import asyncio
 import platform
 import time
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from PySide6.QtWidgets import QApplication
 
 from app.config import ConfigManager
 from app.models import DisplayInfo
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 class _FakeDisplay:
@@ -37,21 +29,46 @@ class _FakeAudio:
         return ["AirPods", "USB DAC"]
 
 
-def _make_dialog(tmp_path, plugins=None):
+@pytest.fixture
+def make_dialog(tmp_path, qapp):
+    from PySide6.QtCore import QCoreApplication, QEvent
+
     from app.gui.settings_dialog import SettingsDialog
 
-    provider = (lambda: plugins) if plugins is not None else None
-    return SettingsDialog(
-        ConfigManager(tmp_path / "config.yaml"),
-        plugin_provider=provider,
-    )
+    dialogs = []
+    work = []
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        def submit(coroutine):
+            future = executor.submit(asyncio.run, coroutine)
+            work.append(future)
+            return future
+
+        def create(plugins=None):
+            provider = (lambda: plugins) if plugins is not None else None
+            dialog = SettingsDialog(
+                ConfigManager(tmp_path / "config.yaml"),
+                plugin_provider=provider,
+                submit=submit,
+            )
+            dialogs.append(dialog)
+            return dialog
+
+        yield create
+
+    for future in work:
+        future.result()
+    qapp.processEvents()
+    for dialog in dialogs:
+        dialog.close()
+        dialog.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 class TestSettingsDialogRefresh:
     """异步刷新显示器/音频列表：不应抛 NameError，且应回填下拉框"""
 
-    def test_refresh_displays_with_plugin(self, qapp, tmp_path) -> None:
-        dialog = _make_dialog(tmp_path, {"betterdisplay": _FakeDisplay()})
+    def test_refresh_displays_with_plugin(self, qapp, make_dialog) -> None:
+        dialog = make_dialog({"betterdisplay": _FakeDisplay()})
         try:
             dialog._refresh_displays()  # 后台线程 + 信号回填
             # 等待异步完成
@@ -65,8 +82,8 @@ class TestSettingsDialogRefresh:
         finally:
             dialog.close()
 
-    def test_refresh_audio_with_plugin(self, qapp, tmp_path) -> None:
-        dialog = _make_dialog(tmp_path, {"audio": _FakeAudio()})
+    def test_refresh_audio_with_plugin(self, qapp, make_dialog) -> None:
+        dialog = make_dialog({"audio": _FakeAudio()})
         try:
             dialog._refresh_audio()
             combo = dialog._mac_audio if platform.system() == "Darwin" else dialog._win_audio
@@ -79,8 +96,8 @@ class TestSettingsDialogRefresh:
         finally:
             dialog.close()
 
-    def test_refresh_without_plugin_provider(self, qapp, tmp_path) -> None:
-        dialog = _make_dialog(tmp_path, None)
+    def test_refresh_without_plugin_provider(self, qapp, make_dialog) -> None:
+        dialog = make_dialog()
         try:
             dialog._refresh_displays()  # 走占位分支，不应抛异常
             dialog._refresh_audio()
@@ -88,9 +105,9 @@ class TestSettingsDialogRefresh:
         finally:
             dialog.close()
 
-    def test_dialog_constructs_with_real_plugins(self, qapp, tmp_path) -> None:
+    def test_dialog_constructs_with_real_plugins(self, qapp, make_dialog) -> None:
         """构造即触发 _load_values → _refresh_displays/audio（真实插件为 None 时也不崩）"""
-        dialog = _make_dialog(tmp_path, {"betterdisplay": _FakeDisplay(), "audio": _FakeAudio()})
+        dialog = make_dialog({"betterdisplay": _FakeDisplay(), "audio": _FakeAudio()})
         try:
             for _ in range(50):
                 qapp.processEvents()

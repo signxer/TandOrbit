@@ -1,19 +1,5 @@
 """主窗口布局回归测试（offscreen Qt）"""
 
-import os
-
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
-import pytest
-from PySide6.QtWidgets import QApplication
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
-
-
 class TestMainWindowLayout:
     def test_mode_button_content_fits(self, qapp, tmp_path) -> None:
         """模式按钮内部内容（图标+文字）必须能放入固定尺寸内，避免 Windows 字体下裁剪"""
