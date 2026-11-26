@@ -64,7 +64,8 @@ class Pairing:
                 return None
 
     def offer(self, host: str, port: int, mac_address: str = "") -> dict:
-        cert = self._local_cert()
+        with self._lock:
+            cert = self._local_cert()
         return {"version": 1, "role": self.role, "host": host, "port": port,
                 "mac_address": mac_address, "cert": cert.public_bytes(serialization.Encoding.PEM).decode(),
                 "fingerprint": self.fingerprint(cert)}
@@ -102,6 +103,20 @@ class Pairing:
     def trust(self, offer: dict) -> None:
         with self._lock:
             _save(self.peer_path, json.dumps(self.validate(offer)).encode())
+
+    def trust_nearby(self, offer: dict) -> None:
+        with self._lock:
+            current = self.peer
+            if current and current["fingerprint"] != offer["fingerprint"]:
+                raise ValueError("本机已配对其他电脑。请先在配对详情中解除配对。")
+            self.trust(offer)
+
+    def sign_confirmation(self, message: bytes) -> bytes:
+        with self._lock:
+            self._local_cert()
+            pem = self.identity.read_bytes().split(b"-----END CERTIFICATE-----", 1)[1]
+            key = serialization.load_pem_private_key(pem, password=None)
+        return key.sign(message, ec.ECDSA(hashes.SHA256()))
 
     def revoke(self) -> None:
         with self._lock:

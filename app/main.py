@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
 from loguru import logger
-from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
 
@@ -18,6 +19,7 @@ from app.controller.controller import Controller
 from app.display_power import DisplayPower
 from app.enums import Mode
 from app.events import EventBus, ModeChangedEvent
+from app.gui.devices import devices_for
 from app.gui.log_viewer import LogViewer
 from app.gui.main_window import MainWindow, _resource_path
 from app.gui.settings_dialog import SettingsDialog
@@ -79,7 +81,7 @@ class Worker(QThread):
 
 
 class Bridge(QObject):
-    mode = Signal(object)
+    mode = Signal(object, object)
     status = Signal(dict)
     candidate = Signal(dict)
     clipboard = Signal(str)
@@ -109,8 +111,11 @@ def main() -> None:
 
         Config(Starlette(), log_config=None, ws="websockets-sansio").load()
         window = MainWindow()
+        settings = SettingsDialog(ConfigManager(), parent=window)
         window.show()
+        settings.show()
         app.processEvents()
+        settings.close()
         window.close()
         return
 
@@ -178,7 +183,21 @@ def main() -> None:
                 await prevent_idle.wait()
 
     worker = Worker(initialize, shutdown)
-    bus.subscribe(ModeChangedEvent, lambda event: bridge.mode.emit(Mode[event.new_mode]))
+
+    def mode_changed(event):
+        mode = Mode[event.new_mode]
+        share_role = None
+        if mode == Mode.SHARE:
+            try:
+                record = runtime.journal.last_commit("local")
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                logger.warning(f"无法读取已确认的显示布局：{exc}")
+            else:
+                if record and record.get("target") == "SHARE":
+                    share_role = record.get("share_role")
+        bridge.mode.emit(mode, share_role)
+
+    bus.subscribe(ModeChangedEvent, mode_changed)
     bridge.mode.connect(window.update_mode)
     bridge.status.connect(window.show_operation)
 
@@ -195,8 +214,7 @@ def main() -> None:
     def online_changed(online):
         nonlocal connected
         connected = online
-        window.update_device_status(role == "mac" or online, role == "windows" or online,
-                                    window._deskflow_status._online)
+        window.update_connection_status(role == "mac" or online, role == "windows" or online)
     bridge.online.connect(online_changed)
 
     def desktop_changed(*_args):
@@ -224,6 +242,13 @@ def main() -> None:
     bridge.mode.connect(tray.update_mode)
     bridge.status.connect(tray.show_operation)
 
+    def refresh_devices():
+        devices = devices_for(config.config.device_appearance, role, pairing.peer)
+        window.set_devices(*devices)
+        tray.set_devices(*devices)
+
+    refresh_devices()
+
     def notice(message):
         window.show_operation({"phase": "failed", "error": str(message)})
 
@@ -237,11 +262,18 @@ def main() -> None:
             bridge.status.emit({"phase": "failed", "error": str(exc)})
 
     def switch(mode):
-        wake = (role == "mac" and mode in (Mode.WINDOWS, Mode.SHARE)
-                and pairing.peer is not None and not connected)
-        if wake and QMessageBox.question(window, "唤醒 Windows", "Windows Agent 当前离线。发送唤醒包？") != (
-            QMessageBox.StandardButton.Yes):
-            return
+        peer = pairing.peer
+        wake = role == "mac" and mode in (Mode.WINDOWS, Mode.SHARE) and peer is not None and not connected
+        if wake:
+            _, device = devices_for(config.config.device_appearance, role, peer)
+            prompt = QMessageBox(window)
+            prompt.setWindowTitle("唤醒电脑")
+            prompt.setTextFormat(Qt.TextFormat.PlainText)
+            prompt.setText(f"{device.name} 当前离线。发送唤醒包？")
+            prompt.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            prompt.setDefaultButton(QMessageBox.StandardButton.No)
+            if prompt.exec() != QMessageBox.StandardButton.Yes:
+                return
         if not worker.submit(perform(mode, wake)):
             notice("服务正在启动，请稍后再试")
 
@@ -280,11 +312,19 @@ def main() -> None:
             config, plugin_provider=registry.get_all, parent=window, submit=worker.submit,
             remote_provider=remote, pairing=pairing, discovery=discovery,
         )
-        dialog.pairing_changed.connect(lambda: worker.submit(runtime.start()))
+        def update_pairing():
+            window.update_mode(Mode.UNKNOWN)
+            tray.update_mode(Mode.UNKNOWN)
+            refresh_devices()
+            online_changed(False)
+            worker.submit(runtime.start())
+
+        dialog.pairing_changed.connect(update_pairing)
         previous_port = (config.config.mac if role == "mac" else config.config.windows).port
         if dialog.exec():
             window.update_hotkeys(config.config.hotkeys)
             hotkeys.set_hotkeys(config.config.hotkeys)
+        refresh_devices()
         current_port = (config.config.mac if role == "mac" else config.config.windows).port
         if current_port != previous_port:
             worker.submit(runtime.start())
@@ -299,8 +339,21 @@ def main() -> None:
     viewer = LogViewer(log_dir=logs)
     sink = logger.add(lambda message: viewer.log_message.emit(
         str(message).rstrip(), message.record["level"].name))
-    tray.switch_history_requested.connect(lambda: (history._refresh(), history.show(), history.raise_()))
-    tray.view_log_requested.connect(lambda: (viewer.show(), viewer.raise_()))
+    def show_history():
+        history._refresh()
+        history.show()
+        history.raise_()
+        history.activateWindow()
+
+    def show_logs():
+        viewer.show()
+        viewer.raise_()
+        viewer.activateWindow()
+
+    window.history_requested.connect(show_history)
+    window.logs_requested.connect(show_logs)
+    tray.switch_history_requested.connect(show_history)
+    tray.view_log_requested.connect(show_logs)
 
     async def update():
         bridge.update.emit(await check_update())

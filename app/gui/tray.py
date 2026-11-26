@@ -1,20 +1,17 @@
-"""TandOrbit 系统托盘
-
-提供系统托盘图标和菜单。
-"""
-
+"""Native tray menu for TandOrbit."""
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Signal, Slot
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from app.enums import Mode
+from app.gui.devices import DeviceView
+from app.gui.main_window import BUSY_PHASES, MODE_INFO, MODE_PLATFORM, mode_name
+from app.gui.theme import icon as menu_icon
 
 
 class TrayIcon(QSystemTrayIcon):
-    """系统托盘图标"""
-
     mode_switch_requested = Signal(Mode)
     show_window_requested = Signal()
     settings_requested = Signal()
@@ -28,9 +25,11 @@ class TrayIcon(QSystemTrayIcon):
         super().__init__(parent)
         if icon and not icon.isNull():
             self.setIcon(icon)
-        self._setup_menu()
         self._current_mode = Mode.UNKNOWN
-        # 点击 tray 图标显示主窗口
+        self._busy = False
+        self._devices = {}
+        self._setup_menu()
+        self.update_mode(self._current_mode)
         self.activated.connect(self._on_activated)
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
@@ -38,87 +37,57 @@ class TrayIcon(QSystemTrayIcon):
             self.show_window_requested.emit()
 
     def _setup_menu(self) -> None:
-        """构建托盘菜单"""
         menu = QMenu()
+        self._menu = menu
 
-        # 显示主窗口
-        show_action = QAction("显示主窗口", menu)
-        show_action.triggered.connect(self.show_window_requested.emit)
-        menu.addAction(show_action)
+        def add(text, glyph, signal):
+            action = menu.addAction(menu_icon(glyph), text)
+            action.triggered.connect(signal.emit)
 
-        # 设置
-        settings_action = QAction("设置...", menu)
-        settings_action.triggered.connect(self.settings_requested.emit)
-        menu.addAction(settings_action)
-
+        add("显示主窗口", "monitor", self.show_window_requested)
+        add("设置…", "settings", self.settings_requested)
         menu.addSeparator()
 
-        # 模式切换
         self._mode_actions: dict[Mode, QAction] = {}
-        mac_action = QAction("Mac 模式", menu)
-        mac_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.MAC))
-        menu.addAction(mac_action)
-        self._mode_actions[Mode.MAC] = mac_action
-
-        win_action = QAction("Windows 模式", menu)
-        win_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.WINDOWS))
-        menu.addAction(win_action)
-        self._mode_actions[Mode.WINDOWS] = win_action
-
-        share_action = QAction("共享模式", menu)
-        share_action.triggered.connect(lambda: self.mode_switch_requested.emit(Mode.SHARE))
-        menu.addAction(share_action)
-        self._mode_actions[Mode.SHARE] = share_action
+        for mode, (_, glyph, _) in MODE_INFO.items():
+            action = menu.addAction(menu_icon(glyph), mode_name(mode))
+            action.setCheckable(True)
+            action.triggered.connect(lambda _checked, target=mode: self._request_mode(target))
+            self._mode_actions[mode] = action
 
         menu.addSeparator()
-
-        # 查看日志
-        recover = QAction("恢复本机显示", menu)
-        recover.triggered.connect(self.recover_requested.emit)
-        menu.addAction(recover)
-
-        view_log_action = QAction("查看日志", menu)
-        view_log_action.triggered.connect(self.view_log_requested.emit)
-        menu.addAction(view_log_action)
-
-        # 切换记录
-        history_action = QAction("切换记录…", menu)
-        history_action.triggered.connect(self.switch_history_requested.emit)
-        menu.addAction(history_action)
-
-        # 检查更新
-        update_action = QAction("检查更新...", menu)
-        update_action.triggered.connect(self.check_update_requested.emit)
-        menu.addAction(update_action)
-
+        add("恢复本机显示", "restore", self.recover_requested)
+        add("切换记录…", "history", self.switch_history_requested)
+        add("查看日志", "logs", self.view_log_requested)
+        add("检查更新…", "refresh", self.check_update_requested)
         menu.addSeparator()
-
-        # 退出
-        quit_action = QAction("退出", menu)
-        quit_action.triggered.connect(self.quit_requested.emit)
-        menu.addAction(quit_action)
-
+        add("退出 TandOrbit", "logout", self.quit_requested)
         self.setContextMenu(menu)
 
+    def _request_mode(self, mode: Mode) -> None:
+        self._mode_actions[mode].setChecked(mode == self._current_mode)
+        self.mode_switch_requested.emit(mode)
+
+    def set_devices(self, local: DeviceView, peer: DeviceView) -> None:
+        self._devices = {device.platform: device for device in (local, peer)}
+        for mode, platform in MODE_PLATFORM.items():
+            action = self._mode_actions[mode]
+            action.setIcon(menu_icon(self._devices[platform].glyph))
+            action.setText(mode_name(mode, self._devices).replace("&", "&&"))
+        self.update_mode(self._current_mode)
+
+    @Slot(object)
     def update_mode(self, mode: Mode) -> None:
-        """更新托盘图标提示，并禁用当前模式的菜单项（避免重复切换）"""
         self._current_mode = mode
-        mode_names = {
-            Mode.MAC: "Mac 模式",
-            Mode.WINDOWS: "Windows 模式",
-            Mode.SHARE: "共享模式",
-            Mode.UNKNOWN: "未知",
-        }
-        name = mode_names.get(mode, "未知")
-        self.setToolTip(f"TandOrbit - {name}")
-        for m, action in getattr(self, "_mode_actions", {}).items():
-            action.setEnabled(m != mode)
+        self.setToolTip(f"TandOrbit · {mode_name(mode, self._devices)}")
+        for value, action in self._mode_actions.items():
+            action.setChecked(value == mode)
+            action.setEnabled(not self._busy and value != mode)
 
     def show_operation(self, record: dict) -> None:
         phase = record["phase"]
         if phase in ("sharing", "audio_warning"):
             return
-        busy = phase in ("queued", "waking", "prepare", "activate", "release", "verify", "commit",
-                         "decision_commit", "recovering")
-        for mode, action in self._mode_actions.items():
-            action.setEnabled(not busy and mode != self._current_mode)
+        self._busy = phase in BUSY_PHASES
+        mode = Mode.__members__.get(record.get("target", "")) if phase == "committed" else None
+        self.update_mode(mode or self._current_mode)

@@ -9,6 +9,8 @@ import json
 import platform
 import socket
 import threading
+import time
+from ipaddress import IPv4Interface
 from typing import Any, Callable
 
 from loguru import logger
@@ -27,6 +29,10 @@ class DiscoveryService:
         self._local_name = platform.node()
         self._local_role = "mac" if platform.system() == "Darwin" else "windows"
         self._peer: dict[str, Any] | None = None
+        self._pairing_port = 0
+        self._pairing_candidates: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+        self._pairing_lock = threading.Lock()
+        self._announcement_changed = threading.Event()
         self._callbacks: list[Callable[[dict[str, Any]], None]] = []
         self._running = False
 
@@ -49,6 +55,21 @@ class DiscoveryService:
 
     def stop(self) -> None:
         self._running = False
+        self._announcement_changed.set()
+
+    def advertise_pairing(self, port: int) -> None:
+        self._pairing_port = port
+        self._announcement_changed.set()
+
+    def pairing_candidates(self) -> list[dict[str, Any]]:
+        now = time.monotonic()
+        with self._pairing_lock:
+            self._pairing_candidates = {
+                key: (expires, candidate)
+                for key, (expires, candidate) in self._pairing_candidates.items()
+                if expires > now
+            }
+            return [candidate.copy() for _, candidate in self._pairing_candidates.values()]
 
     def _get_local_ip(self) -> str:
         """获取本机局域网 IP"""
@@ -110,6 +131,7 @@ class DiscoveryService:
             "host": self._local_host,
             "port": self._local_port,
             "name": self._local_name,
+            "pairing_port": self._pairing_port,
         }
         return json.dumps(msg).encode()
 
@@ -118,15 +140,41 @@ class DiscoveryService:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.settimeout(1)
-        msg = self._make_announcement()
         while self._running:
-            try:
-                sock.sendto(msg, ("255.255.255.255", BROADCAST_PORT))
-            except Exception:
-                pass
-            import time
-            time.sleep(BROADCAST_INTERVAL)
+            self._announcement_changed.clear()
+            announcement = self._make_announcement()
+            for host in self._broadcast_targets():
+                try:
+                    sock.sendto(announcement, (host, BROADCAST_PORT))
+                except OSError:
+                    continue
+            self._announcement_changed.wait(BROADCAST_INTERVAL)
         sock.close()
+
+    @staticmethod
+    def _broadcast_targets() -> set[str]:
+        # Send on active local subnets even when a VPN owns the default route.
+        import psutil
+
+        targets = {"255.255.255.255"}
+        try:
+            interfaces = psutil.net_if_addrs()
+            stats = psutil.net_if_stats()
+        except OSError:
+            return targets
+        for name, addresses in interfaces.items():
+            if name not in stats or not stats[name].isup:
+                continue
+            for address in addresses:
+                if address.family != socket.AF_INET or not address.netmask or address.ptp:
+                    continue
+                try:
+                    network = IPv4Interface(f"{address.address}/{address.netmask}")
+                except ValueError:
+                    continue
+                if not network.ip.is_loopback and network.network.prefixlen < 31:
+                    targets.add(str(network.network.broadcast_address))
+        return targets
 
     def _run_listen(self) -> None:
         """监听广播消息"""
@@ -166,6 +214,17 @@ class DiscoveryService:
             "role": role, "host": addr[0], "port": port,
             "name": str(msg.get("name", ""))[:128],
         }
+        key = (addr[0], port)
+        pairing_port = msg.get("pairing_port")
+        with self._pairing_lock:
+            if type(pairing_port) is int and 1 <= pairing_port <= 65535:
+                expires = time.monotonic() + BROADCAST_INTERVAL * 3
+                self._pairing_candidates[key] = expires, {**peer, "pairing_port": pairing_port}
+                if len(self._pairing_candidates) > 32:
+                    oldest = min(self._pairing_candidates, key=lambda item: self._pairing_candidates[item][0])
+                    del self._pairing_candidates[oldest]
+            else:
+                self._pairing_candidates.pop(key, None)
         if self._peer == peer:
             return
         self._peer = peer

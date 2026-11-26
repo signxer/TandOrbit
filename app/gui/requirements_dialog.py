@@ -1,249 +1,77 @@
-"""TandOrbit 依赖检查对话框
-
-启动时检查必需的外部工具是否已安装，未安装的给出下载链接。
-"""
-
+"""Availability of optional display compatibility tools."""
 from __future__ import annotations
 
 import platform
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QDesktopServices, QFont
-from PySide6.QtWidgets import (
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QVBoxLayout
 
-from app.gui.main_window import _COLORS, _FONT
-
-
-def _check_betterdisplay() -> bool:
-    cli = shutil.which("betterdisplaycli")
-    if cli:
-        return True
-    paths = [
-        "/Applications/BetterDisplay.app/Contents/MacOS/betterdisplaycli",
-        "/opt/homebrew/bin/betterdisplaycli",
-    ]
-    return any(Path(p).exists() for p in paths)
-
-
-def _check_multimonitortool(tools_config: dict | None = None) -> bool:
-    if shutil.which("MultiMonitorTool.exe"):
-        return True
-    # 用户配置了自定义路径
-    if tools_config:
-        cfg_path = tools_config.get("multimonitortool_path", "")
-        if cfg_path and Path(cfg_path).exists():
-            return True
-    return False
-
-
-def _check_deskflow() -> bool:
-    system = platform.system()
-    if system == "Darwin":
-        return Path("/Applications/Deskflow.app").exists()
-    elif system == "Windows":
-        if shutil.which("deskflow.exe"):
-            return True
-        return Path("deskflow.exe").exists()
-    return False
-
-
-# (名称, 检查函数, 下载链接, 平台)
-REQUIREMENTS: list[tuple[str, callable, str, str]] = [
-    (
-        "BetterDisplay",
-        _check_betterdisplay,
-        "https://github.com/waydabber/BetterDisplay/releases",
-        "Darwin",
-    ),
-    (
-        "MultiMonitorTool",
-        _check_multimonitortool,
-        "https://www.nirsoft.net/utils/multi_monitor_tool.html",
-        "Windows",
-    ),
-    (
-        "Deskflow",
-        _check_deskflow,
-        "https://github.com/deskflow/deskflow/releases",
-        "all",
-    ),
-]
+from app.gui.theme import button, card, colors, icon, label, stylesheet
 
 
 class RequirementsDialog(QDialog):
-    """依赖检查对话框"""
-
-    def __init__(self, parent: QWidget | None = None, config_manager: Any | None = None) -> None:
+    def __init__(self, parent=None, config_manager=None) -> None:
         super().__init__(parent)
         self._config_manager = config_manager
-        self.setWindowTitle("TandOrbit — 环境检查")
-        self.setMinimumWidth(440)
-        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
-        self.setStyleSheet(self._build_stylesheet())
-        self._items: list[dict] = []
-        self._setup_ui()
-        self._run_check()
-
-    @staticmethod
-    def _build_stylesheet() -> str:
-        c = _COLORS
-        return f"""
-            * {{
-                font-family: "{_FONT}";
-                font-size: 13px;
-            }}
-            QDialog {{
-                background: {c['window_bg']};
-                color: {c['text']};
-            }}
-            QLabel {{
-                color: {c['text']};
-            }}
-            QPushButton {{
-                background: {c['bg']};
-                color: {c['text']};
-                border: 1px solid {c['border']};
-                border-radius: 6px;
-                padding: 6px 18px;
-            }}
-            QPushButton:hover {{
-                background: {c['hover']};
-            }}
-            QPushButton:pressed {{
-                background: {c['checked_bg']};
-            }}
-        """
-
-    def _setup_ui(self) -> None:
+        self.setWindowTitle("显示器兼容工具")
+        self.setMinimumWidth(448)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        self.setStyleSheet(stylesheet())
         layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(24, 20, 24, 20)
+        layout.setContentsMargins(20, 18, 20, 16)
+        layout.setSpacing(12)
+        layout.addWidget(label("显示器兼容工具", "title"))
+        self._tool_list = QVBoxLayout()
+        self._tool_list.setSpacing(9)
+        layout.addLayout(self._tool_list)
+        actions = QHBoxLayout()
+        refresh = button("重新检查", "refresh", kind="ghost")
+        refresh.clicked.connect(self._refresh)
+        close = button("关闭", kind="primary")
+        close.clicked.connect(self.accept)
+        actions.addWidget(refresh)
+        actions.addStretch()
+        actions.addWidget(close)
+        layout.addLayout(actions)
+        self._refresh()
 
-        # 标题
-        title = QLabel("以下工具是 TandOrbit 正常运行所必需的：")
-        title.setFont(QFont(_FONT, 13))
-        layout.addWidget(title)
+    def _tools(self):
+        config = self._config_manager.config if self._config_manager else None
+        if platform.system() == "Darwin":
+            path = config.betterdisplay.cli_path if config else (
+                "/Applications/BetterDisplay.app/Contents/MacOS/betterdisplaycli")
+            found = Path(path).is_file() or bool(shutil.which("betterdisplaycli"))
+            return [("BetterDisplay", found, "共享模式中的逐屏断开与重连",
+                     "https://github.com/waydabber/BetterDisplay/releases")]
+        path = config.tools.multimonitortool_path if config else "MultiMonitorTool.exe"
+        found = Path(path).is_file() or bool(shutil.which(path))
+        return [("MultiMonitorTool", found, "Windows 显示器后端的可选兼容工具",
+                 "https://www.nirsoft.net/utils/multi_monitor_tool.html")]
 
-        # 检查项容器
-        self._check_container = QVBoxLayout()
-        self._check_container.setSpacing(8)
-        layout.addLayout(self._check_container)
-
-        # 底部按钮
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-
-        recheck_btn = QPushButton("重新检查")
-        recheck_btn.clicked.connect(self._run_check)
-        btn_row.addWidget(recheck_btn)
-
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
-
-        layout.addLayout(btn_row)
-
-    def _run_check(self) -> None:
-        """执行检查并刷新 UI"""
-        # 清空旧项
-        while self._check_container.count():
-            item = self._check_container.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self._items.clear()
-
-        system = platform.system()
-        all_ok = True
-
-        # 读配置中的 tools 路径，传给检查函数
-        tools_cfg = {}
-        if self._config_manager:
-            tools_cfg = getattr(self._config_manager.config, "tools", {})
-        for name, check_fn, url, plat in REQUIREMENTS:
-            if plat != "all" and plat != system:
-                continue
-
-            if name == "MultiMonitorTool":
-                ok = _check_multimonitortool(tools_cfg)
+    def _refresh(self):
+        while self._tool_list.count():
+            self._tool_list.takeAt(0).widget().deleteLater()
+        for name, available, detail, url in self._tools():
+            row = card()
+            layout = QHBoxLayout(row)
+            layout.setContentsMargins(13, 12, 13, 12)
+            mark = QLabel()
+            glyph = "check" if available else "info"
+            ink = colors()["green" if available else "muted"]
+            mark.setPixmap(icon(glyph, ink).pixmap(19, 19))
+            layout.addWidget(mark)
+            text = QVBoxLayout()
+            text.addWidget(label(name, "section"))
+            text.addWidget(label(detail, "muted", wrap=True))
+            layout.addLayout(text, 1)
+            if available:
+                layout.addWidget(label("已安装", "success"))
             else:
-                ok = check_fn()
-            if not ok:
-                all_ok = False
-
-            row = self._create_check_row(name, ok, url)
-            self._check_container.addWidget(row)
-
-        if all_ok:
-            status = QLabel("✅  所有依赖已就绪")
-            status.setStyleSheet(f"color: #4CAF50; font-size: 14px; font-weight: bold;")
-            status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._check_container.addWidget(status)
-
-    def _create_check_row(self, name: str, ok: bool, url: str) -> QWidget:
-        """创建单个检查项行"""
-        row = QWidget()
-        h = QHBoxLayout(row)
-        h.setContentsMargins(0, 4, 0, 4)
-        h.setSpacing(10)
-
-        # 状态图标
-        icon = QLabel("✅" if ok else "❌")
-        icon.setFixedWidth(24)
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        h.addWidget(icon)
-
-        # 工具名
-        name_label = QLabel(name)
-        name_label.setFont(QFont(_FONT, 13, QFont.Weight.Bold if not ok else QFont.Weight.Normal))
-        h.addWidget(name_label)
-
-        h.addStretch()
-
-        if ok:
-            status_label = QLabel("已安装")
-            status_label.setStyleSheet(f"color: #4CAF50;")
-            h.addWidget(status_label)
-        else:
-            status_label = QLabel("未安装")
-            status_label.setStyleSheet(f"color: #FF5252;")
-            h.addWidget(status_label)
-
-            # 下载链接按钮
-            link_btn = QPushButton("下载 ↗")
-            link_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            link_btn.setStyleSheet(f"""
-                QPushButton {{
-                    color: {_COLORS['checked_border']};
-                    border: 1px solid {_COLORS['checked_border']};
-                    border-radius: 4px;
-                    padding: 3px 12px;
-                    font-size: 12px;
-                }}
-                QPushButton:hover {{
-                    background: {_COLORS['checked_bg']};
-                }}
-            """)
-            link_btn.clicked.connect(lambda _, u=url: QDesktopServices.openUrl(u))
-            h.addWidget(link_btn)
-
-        return row
-
-    @staticmethod
-    def has_missing() -> bool:
-        """快速检查是否有缺失的依赖"""
-        system = platform.system()
-        for name, check_fn, url, plat in REQUIREMENTS:
-            if plat != "all" and plat != system:
-                continue
-            if not check_fn():
-                return True
-        return False
+                open_page = button("下载", "external")
+                open_page.setToolTip("未检测到兼容工具")
+                open_page.clicked.connect(lambda _checked, target=url: QDesktopServices.openUrl(QUrl(target)))
+                layout.addWidget(open_page)
+            self._tool_list.addWidget(row)

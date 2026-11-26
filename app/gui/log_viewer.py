@@ -1,113 +1,84 @@
-"""TandOrbit 日志查看器
-
-实时显示应用日志（通过 loguru sink + Qt 信号桥接，跨线程安全）。
-"""
-
+"""Application log viewer with a bounded, selectable console."""
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import (
-    QHBoxLayout,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-    QWidget,
-)
+from pathlib import Path
+
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFontDatabase, QTextCharFormat, QTextCursor
+from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QVBoxLayout, QWidget
+
+from app.gui.theme import button, colors, label, stylesheet
 
 _LEVEL_COLORS = {
-    "DEBUG": "#888888",
-    "INFO": "#d4d4d4",
-    "WARNING": "#ffa500",
-    "ERROR": "#ff4444",
-    "CRITICAL": "#ff0000",
+    "DEBUG": "#A9BAD0",
+    "INFO": "#DAE5F4",
+    "WARNING": "#FFD08B",
+    "ERROR": "#FFAAB5",
+    "CRITICAL": "#FFAAB5",
 }
 
 
 class LogViewer(QWidget):
-    """日志查看器（应用内）"""
-
-    # 跨线程安全：loguru sink 在任意线程 emit，Qt 自动排队到 GUI 线程
-    log_message = Signal(str, str)  # (message, level)
+    log_message = Signal(str, str)
 
     def __init__(self, parent: QWidget | None = None, log_dir=None) -> None:
         super().__init__(parent)
-        self._log_dir = log_dir
+        self._log_dir = Path(log_dir) if log_dir else Path.home() / ".tandorbit/logs"
         self.setWindowTitle("TandOrbit 日志")
-        self.resize(640, 420)
-        self._setup_ui()
-        self._log_buffer: list[str] = []
-        self._max_lines = 2000
-        self.log_message.connect(self._on_log_message)
-
-    def _setup_ui(self) -> None:
-        """构建界面"""
+        self.setProperty("role", "window")
+        self.setMinimumSize(565, 350)
+        self.resize(784, 450)
+        palette = colors()
+        self.setStyleSheet(stylesheet() + f"""
+            QPlainTextEdit[role="console"] {{
+                background: {palette['console']}; color: {palette['console_text']};
+                border-radius: 10px; padding: 12px; selection-background-color: #355781;
+                selection-color: #FFFFFF;
+            }}
+        """)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-
-        # 工具栏
-        toolbar = QHBoxLayout()
-        open_file_btn = QPushButton("打开日志文件")
-        open_file_btn.clicked.connect(self._open_log_file)
-        clear_btn = QPushButton("清空")
-        clear_btn.clicked.connect(self._clear)
-        toolbar.addWidget(open_file_btn)
-        toolbar.addStretch()
-        toolbar.addWidget(clear_btn)
-        layout.addLayout(toolbar)
-
-        # 日志文本区域
-        self._text_edit = QTextEdit()
+        layout.setContentsMargins(21, 18, 21, 16)
+        layout.setSpacing(11)
+        top = QHBoxLayout()
+        top.addWidget(label("运行日志", "title"))
+        top.addStretch()
+        open_file = button("打开日志文件", "folder")
+        open_file.clicked.connect(self._open_log_file)
+        top.addWidget(open_file)
+        clear = button("清空视图", "trash", kind="ghost")
+        clear.clicked.connect(self._text_clear)
+        top.addWidget(clear)
+        layout.addLayout(top)
+        self._text_edit = QPlainTextEdit()
+        self._text_edit.setProperty("role", "console")
+        self._text_edit.setAccessibleName("运行日志内容")
         self._text_edit.setReadOnly(True)
-        self._text_edit.setFont(QFont("SF Mono", 11))
-        self._text_edit.setStyleSheet(
-            "QTextEdit { background-color: #1e1e1e; color: #d4d4d4; }"
-        )
-        layout.addWidget(self._text_edit)
-
-    def _on_log_message(self, message: str, level: str) -> None:
-        """收到日志消息（GUI 线程）"""
-        self.append_log(message, level)
+        self._text_edit.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        self._text_edit.setMaximumBlockCount(2000)
+        self._text_edit.setPlaceholderText("等待日志…")
+        layout.addWidget(self._text_edit, 1)
+        self.log_message.connect(self.append_log)
 
     def append_log(self, message: str, level: str = "INFO") -> None:
-        """添加日志"""
-        color = _LEVEL_COLORS.get(level, "#d4d4d4")
-        # 转义 HTML 特殊字符，防止日志内容破坏渲染
-        safe = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        html = f'<span style="color:{color};">{safe}</span>'
-        self._text_edit.append(html)
-
-        # 限制行数
-        doc = self._text_edit.document()
-        if doc.blockCount() > self._max_lines:
-            cursor = self._text_edit.textCursor()
-            cursor.movePosition(cursor.MoveOperation.Start)
-            cursor.select(cursor.SelectionType.BlockUnderCursor)
-            cursor.removeSelectedText()
-
-        # 滚动到底部
-        scrollbar = self._text_edit.verticalScrollBar()
-        scrollbar.setValue(scrollbar.maximum())
+        scroll = self._text_edit.verticalScrollBar()
+        follow = scroll.value() == scroll.maximum()
+        cursor = QTextCursor(self._text_edit.document())
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        if not self._text_edit.document().isEmpty():
+            cursor.insertBlock()
+        format = QTextCharFormat()
+        format.setForeground(QColor(_LEVEL_COLORS.get(level, _LEVEL_COLORS["INFO"])))
+        cursor.insertText(message, format)
+        if follow:
+            scroll.setValue(scroll.maximum())
 
     def _open_log_file(self) -> None:
-        """用系统默认程序打开最新日志文件"""
-        from pathlib import Path
-
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-
-        log_dir = self._log_dir or Path.home() / ".tandorbit" / "logs"
         try:
-            files = sorted(
-                log_dir.glob("tandorbit_*.log"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
+            latest = max(self._log_dir.glob("tandorbit_*.log"), key=lambda path: path.stat().st_mtime, default=None)
         except OSError:
-            files = []
-        if files:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(files[0])))
+            latest = None
+        if latest:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(latest)))
 
-    def _clear(self) -> None:
-        """清空日志"""
+    def _text_clear(self) -> None:
         self._text_edit.clear()

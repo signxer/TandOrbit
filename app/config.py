@@ -90,6 +90,14 @@ class SharingConfig(BaseModel):
     edge: Literal["left", "right", "top", "bottom"] = "right"
 
 
+DeviceGlyph = Literal["auto", "laptop", "desktop", "mini", "tower"]
+
+
+class DeviceAppearance(BaseModel):
+    name: str = Field("", max_length=40)
+    glyph: DeviceGlyph = "auto"
+
+
 class ToolsConfig(BaseModel):
     """外部工具路径配置"""
 
@@ -125,6 +133,7 @@ class AppConfig(BaseModel):
     betterdisplay: BetterDisplayConfig = Field(default_factory=BetterDisplayConfig)
     audio: AudioConfig = Field(default_factory=AudioConfig)
     sharing: SharingConfig = Field(default_factory=SharingConfig)
+    device_appearance: dict[str, DeviceAppearance] = Field(default_factory=dict)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     hotkeys: dict[str, str] = Field(default_factory=_default_hotkeys)
     wol_nic: str = ""  # 本机 WoL 网卡名，如 en0 / Ethernet
